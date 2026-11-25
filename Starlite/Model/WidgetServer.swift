@@ -66,14 +66,14 @@ final class WidgetServer: @unchecked Sendable {
             params.allowLocalEndpointReuse = true
             guard let port = NWEndpoint.Port(rawValue: WidgetLink.port),
                   let l = try? NWListener(using: params, on: port) else {
-                WidgetLog.shared.add("Couldn't listen for the widget on port \(WidgetLink.port).")
+                WidgetLog.write("Couldn't listen for the widget on port \(WidgetLink.port).")
                 return
             }
             l.newConnectionHandler = { [weak self] c in self?.serve(c) }
             l.stateUpdateHandler = { [weak self] state in
                 switch state {
-                case .ready: WidgetLog.shared.add("Listening for the widget.")
-                case .failed(let e): WidgetLog.shared.add("Listening for the widget failed: \(e). Trying again.")
+                case .ready: WidgetLog.write("Listening for the widget.")
+                case .failed(let e): WidgetLog.write("Listening for the widget failed: \(e). Trying again.")
                 default: break
                 }
                 if case .failed = state {
@@ -100,16 +100,16 @@ final class WidgetServer: @unchecked Sendable {
                 let payload = WidgetPayload(snap: self.snap, prefs: self.prefs, covers: self.arts)
                 self.served = (Date(), self.snap.hasTrack ? self.snap.title : "Not Playing", self.arts.count, self.snap.upcoming.count)
                 let s = self.snap
-                WidgetLog.shared.add("Widget picked up “\(s.hasTrack ? s.title : "Not Playing")” (\(s.playing ? "playing" : "paused") at \(Int(s.elapsed + (s.playing ? Date().timeIntervalSince(s.at) : 0)))s), \(self.arts.count) cover(s) for \(s.upcoming.count) next song(s), this song's cover: \(s.art.map { self.arts[$0] != nil ? "sent" : "missing" } ?? "none").")
+                WidgetLog.write("Widget picked up “\(s.hasTrack ? s.title : "Not Playing")” (\(s.playing ? "playing" : "paused") at \(Int(s.elapsed + (s.playing ? Date().timeIntervalSince(s.at) : 0)))s), \(self.arts.count) cover(s) for \(s.upcoming.count) next song(s), this song's cover: \(s.art.map { self.arts[$0] != nil ? "sent" : "missing" } ?? "none").")
                 self.reply(c, try? JSONEncoder().encode(payload), type: "application/json")
             } else if path.hasPrefix("/shown/") {
                 self.shown = (Date(), String(path.dropFirst(7)).removingPercentEncoding ?? "")
-                WidgetLog.shared.add("Widget shows \(self.shown?.report ?? "").")
+                WidgetLog.write("Widget shows \(self.shown?.report ?? "").")
                 self.reply(c, Data("ok".utf8))
             } else if path.hasPrefix("/cmd/"), let cmd = PlayerCommand(rawValue: String(path.dropFirst(5))) {
                 // Answers once the player has done it and has the new song's
                 // cover (the widget redraws right after).
-                WidgetLog.shared.add("Widget button: \(cmd.rawValue).")
+                WidgetLog.write("Widget button: \(cmd.rawValue).")
                 Task { @MainActor in
                     CommandBridge.handler?(cmd)
                     await CommandBridge.settle()

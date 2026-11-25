@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.3.4"
+    MARKETING_VERSION: "0.3.5"
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1,2"
     CODE_SIGN_STYLE: Manual
@@ -52,6 +52,9 @@ targets:
         NSPhotoLibraryUsageDescription: Pick a picture for your own theme's background.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        # Sideloading tools rename the App Group; these tell them (and us) its name.
+        ALTAppGroups: [group.io.github.turtlemaxx.starlite]
+        StarliteAppGroup: group.io.github.turtlemaxx.starlite
         CFBundleURLTypes:
           - CFBundleURLName: io.github.turtlemaxx.starlite
             CFBundleURLSchemes: [starlite]
@@ -95,3 +98,5 @@ targets:
         # It asks the app on 127.0.0.1 (sideloaded, there's no App Group).
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+        ALTAppGroups: [group.io.github.turtlemaxx.starlite]
+        StarliteAppGroup: group.io.github.turtlemaxx.starlite

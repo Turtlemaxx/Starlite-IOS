@@ -238,11 +238,25 @@ final class Player {
                 if let c = widgetCovers[u.id] { covers[widgetArtKey(u.id)] = c.data }
             }
         }
+        writeWidgetCovers(covers)
         AppGroup.write(s, "widget-now.json")
-        // Without an App Group (sideloaded), the widget asks the app itself.
+        // Without an App Group, the widget asks the app itself.
         WidgetServer.shared.update(now: s, arts: covers)
         prefetchWidgetCovers()
         if reload { reloadWidgetSoon(s) }
+    }
+
+    /// The covers the widget may need, as files in the shared folder (and
+    /// the ones it won't need any more gone).
+    private func writeWidgetCovers(_ covers: [String: Data]) {
+        let fm = FileManager.default
+        for (key, data) in covers where !fm.fileExists(atPath: AppGroup.coverURL(key).path) {
+            try? data.write(to: AppGroup.coverURL(key), options: .atomic)
+        }
+        let keep = Set(covers.keys.map { "widget-art-\($0).jpg" })
+        for name in (try? fm.contentsOfDirectory(atPath: AppGroup.folder.path)) ?? [] where name.hasPrefix("widget-art-") && !keep.contains(name) {
+            try? fm.removeItem(at: AppGroup.folder.appendingPathComponent(name))
+        }
     }
 
     /// One redraw for a burst of changes (a song starting, then its cover
@@ -257,7 +271,7 @@ final class Player {
             self?.widgetShown = seen
             AppGroup.reloadWidgets()
             WidgetServer.shared.askedReload()
-            WidgetLog.shared.add("Asked the widget to refresh: “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
+            WidgetLog.write("Asked the widget to refresh: “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
         }
         widgetReload = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
@@ -285,7 +299,7 @@ final class Player {
                     guard let self else { return }
                     self.widgetFetching.remove(t.id)
                     guard let small else {
-                        WidgetLog.shared.add("Couldn't load the cover of “\(t.title)” for the widget.")
+                        WidgetLog.write("Couldn't load the cover of “\(t.title)” for the widget.")
                         return
                     }
                     self.widgetCovers[t.id] = (small, color)
@@ -441,7 +455,7 @@ final class Player {
             }
             guard !Task.isCancelled else { return }
             guard let data, let img = UIImage(data: data) else {
-                WidgetLog.shared.add("Couldn't load the cover of “\(t.title)”.")
+                WidgetLog.write("Couldn't load the cover of “\(t.title)”.")
                 return
             }
             await MainActor.run {

@@ -6,16 +6,61 @@ import WidgetKit
 #endif
 
 /// Shared between the app and its widget: the App Group they both see.
+///
+/// Sideloading tools (Feather, Sideloadly, AltStore…) rename the group when
+/// they sign the app again, so its real name is read out of the app's own
+/// signature first, then the names they leave in Info.plist.
 enum AppGroup {
-    static let id = "group.io.github.turtlemaxx.starlite"
+    static let fallbackID = "group.io.github.turtlemaxx.starlite"
 
-    /// The shared folder (the app's own folder if the group isn't there,
-    /// e.g. in the simulator without signing).
+    static let candidates: [String] = {
+        var list = signedGroups()
+        let info = Bundle.main.infoDictionary ?? [:]
+        if let alt = info["ALTAppGroups"] as? [String] { list += alt }
+        if let own = info["StarliteAppGroup"] as? String { list.append(own) }
+        list.append(fallbackID)
+        var seen = Set<String>()
+        return list.filter { seen.insert($0).inserted }
+    }()
+
+    /// The group this build can really use (nil: none, each side has its own folder).
+    static let id: String? = {
+        candidates.first { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) != nil }
+    }()
+
+    static var isShared: Bool { id != nil }
+
+    /// The shared folder (the app's or widget's own folder if there's no group).
     static var folder: URL {
-        if let u = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: id) { return u }
+        if let id, let u = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: id) { return u }
         let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Shared", isDirectory: true)
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
+    }
+
+    /// The groups in the entitlements embedded in this executable's signature.
+    private static func signedGroups() -> [String] {
+        guard let url = Bundle.main.executableURL,
+              let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return [] }
+        let key = Data("<key>com.apple.security.application-groups</key>".utf8)
+        var end = data.endIndex
+        var found: [String] = []
+        var attempts = 0
+        while attempts < 4, let r = data.range(of: key, options: .backwards, in: data.startIndex..<end) {
+            attempts += 1
+            end = r.lowerBound
+            let windowEnd = min(r.upperBound + 4096, data.endIndex)
+            let text = String(decoding: data[r.upperBound..<windowEnd], as: UTF8.self)
+            guard let arrayEnd = text.range(of: "</array>") else { continue }
+            var rest = text[text.startIndex..<arrayEnd.lowerBound]
+            while let open = rest.range(of: "<string>"), let close = rest.range(of: "</string>", range: open.upperBound..<rest.endIndex) {
+                let value = String(rest[open.upperBound..<close.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty && !found.contains(value) { found.append(value) }
+                rest = rest[close.upperBound...]
+            }
+            if !found.isEmpty { break }
+        }
+        return found
     }
 
     static func read<T: Codable>(_ type: T.Type, _ name: String, defaults: T) -> T {
@@ -35,6 +80,9 @@ enum AppGroup {
     }
 
     static var artworkURL: URL { folder.appendingPathComponent("widget-cover.jpg") }
+
+    /// A song's cover for the widget, by key.
+    static func coverURL(_ key: String) -> URL { folder.appendingPathComponent("widget-art-\(key).jpg") }
 
     static func reloadWidgets() {
         #if canImport(WidgetKit)

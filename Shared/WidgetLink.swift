@@ -10,9 +10,7 @@ enum WidgetLink {
     static let prefix = "io.github.turtlemaxx.starlite.cmd."
 
     /// Whether the App Group is really there (signed with it).
-    static var hasGroup: Bool {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: AppGroup.id) != nil
-    }
+    static var hasGroup: Bool { AppGroup.isShared }
 
     private static let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral

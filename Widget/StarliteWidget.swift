@@ -32,30 +32,28 @@ struct NowPlayingProvider: TimelineProvider {
         }
     }
 
-    /// From the app itself (works when sideloaded, without an App Group):
-    /// this song, then each next one from when it should start. Else the App
-    /// Group's files, else what the widget saw last.
+    /// From the shared App Group folder (found even when the sideloading
+    /// tool renamed it), else straight from the app, else what the widget saw
+    /// last. This song, then each next one from when it should start.
     private func entries() async -> [NowPlayingEntry] {
-        if let live = await WidgetLink.fetch() {
-            let (snap, prefs, covers) = live
-            let art = snap.art.flatMap { covers[$0] }
-            Cache.save(snap, prefs, art)
-            var list = [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)]
-            if snap.playing && snap.duration > 0 {
-                for i in snap.upcoming.indices {
-                    guard let s = snap.later(i) else { break }
-                    list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
-                }
-            }
-            let shown = (snap.hasTrack ? "“\(snap.title)” \(snap.playing ? "playing" : "paused") at \(Int(snap.elapsed))s, \(art != nil ? "with" : "no") cover, \(list.count - 1) next songs queued" : "nothing playing") + "; last time it was \(RenderNote.last)"
-            await WidgetLink.report(shown)
-            return list
-        }
-        if WidgetLink.hasGroup {
+        if AppGroup.isShared {
             let snap = AppGroup.read(WidgetSnapshot.self, "widget-now.json", defaults: .empty)
             let prefs = AppGroup.read(WidgetPrefs.self, "widget-prefs.json", defaults: WidgetPrefs())
-            let art = snap.hasTrack ? UIImage(contentsOfFile: AppGroup.artworkURL.path) : nil
-            return [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: art)]
+            var covers: [String: UIImage] = [:]
+            for key in ([snap.art] + snap.upcoming.map(\.art)).compactMap({ $0 }) {
+                if let img = UIImage(contentsOfFile: AppGroup.coverURL(key).path) { covers[key] = img }
+            }
+            let list = build(snap, prefs, covers)
+            log("shared folder", list)
+            return list
+        }
+        if let live = await WidgetLink.fetch() {
+            let (snap, prefs, covers) = live
+            Cache.save(snap, prefs, snap.art.flatMap { covers[$0] })
+            let list = build(snap, prefs, covers)
+            log("the app (no shared folder)", list)
+            await WidgetLink.report(list.first.map { describe($0) } ?? "")
+            return list
         }
         // The app isn't running, so nothing is playing: show where it stopped.
         let (saved, prefs, art) = Cache.load()
@@ -65,8 +63,38 @@ struct NowPlayingProvider: TimelineProvider {
             snap.at = .now
             snap.playing = false
         }
+        WidgetLog.write("Timeline: no shared folder and the app didn't answer; showing the last song, paused.")
         return [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)]
     }
+
+    private func build(_ snap: WidgetSnapshot, _ prefs: WidgetPrefs, _ covers: [String: UIImage]) -> [NowPlayingEntry] {
+        var list = [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? snap.art.flatMap { covers[$0] } : nil)]
+        if snap.playing && snap.duration > 0 {
+            for i in snap.upcoming.indices {
+                guard let s = snap.later(i) else { break }
+                list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
+            }
+        }
+        return list
+    }
+
+    private func describe(_ e: NowPlayingEntry) -> String {
+        let s = e.snap
+        guard s.hasTrack else { return "nothing playing" }
+        let at = Int(s.elapsed + (s.playing ? Date.now.timeIntervalSince(s.at) : 0))
+        return "“\(s.title)” \(s.playing ? "playing" : "paused") at \(at)s, cover \(e.artwork != nil ? "there" : s.art == nil ? "not ready in the app" : "file missing")"
+    }
+
+    private func log(_ from: String, _ list: [NowPlayingEntry]) {
+        let next = list.dropFirst().map { "“\($0.snap.title)” at \(Self.clock.string(from: $0.date))\($0.artwork == nil ? " (no cover)" : "")" }
+        WidgetLog.write("Timeline from \(from): \(list.first.map { describe($0) } ?? "")\(next.isEmpty ? "" : "; then " + next.joined(separator: ", ")). Last drawn: \(RenderNote.last).")
+    }
+
+    private static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 }
 
 /// The widget's own copy of what it last got from the app.
@@ -135,6 +163,10 @@ struct StarliteNowPlayingWidget: Widget {
 
 @main
 struct StarliteWidgets: WidgetBundle {
+    init() {
+        WidgetLog.write("Widget started; shared folder: \(AppGroup.id ?? "none") (tried \(AppGroup.candidates.joined(separator: ", "))).")
+    }
+
     var body: some Widget {
         StarliteNowPlayingWidget()
     }
