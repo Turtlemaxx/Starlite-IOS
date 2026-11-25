@@ -13,9 +13,12 @@ Starlite plays your music from **Navidrome** or **Jellyfin**, and songs you keep
 
 ## What's in it
 
-- **Music Server:** your server's playlists and newest albums, and a search. Save any server playlist into your own playlists.
-- **Playlists:** Liked Music and Downloaded Music at the top, then your playlists as big CD cases on shelves (or a list). Songs are a plain list: swipe to like, play next or remove, long press for more.
-- **Now Playing:** the cover over its own colours, seek bar, volume, AirPlay, shuffle, repeat and what plays next. Keeps playing in the background, with the lock screen's controls.
+- **Music Server:** Recently Played, your server's playlists and newest albums. Save any server playlist into your own playlists.
+- **Playlists:** Liked Music and Downloaded Music at the top, then your playlists and your servers' playlists as big CDs on shelves (or a list). Songs are a plain list: swipe to like, play next or remove, long press for more.
+- **Search:** the magnifying glass next to the tab bar searches your playlists, liked and downloaded songs and your servers at once.
+- **Now Playing:** the cover over its own colours, seek bar, volume, AirPlay, lyrics (lrclib.net), what plays next with shuffle and repeat, and more songs by the artist. Keeps playing in the background, with the lock screen's controls.
+- **Sound:** speed, bass, clarity, balance, mono and a 10-band equalizer with presets.
+- **Last.fm:** "now playing" and scrobbles, with your own API key.
 - **Downloads:** download songs (or whole playlists) to play without a connection, or put music files in the Files app (On My iPhone → Starlite).
 - **Settings**, as customizable as on the computer: themes (Dark, Light, Cherry Blossom, Stars, Bubbles, your own colours and picture), panels (Liquid Glass, frosted or solid), corners, accent (the theme's, the playing cover's or your own), text size, icon weight, motion, song rows, the CD shelf, streaming and download quality, haptics. Save a look and switch between your looks.
 

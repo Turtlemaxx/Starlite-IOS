@@ -129,7 +129,9 @@ struct NowPlayingView: View {
             .fontWeight(look.prefs.iconWeight.weight)
         }
         .background { CoverBackdrop(image: player.artworkImage).ignoresSafeArea() }
-        .clipShape(RoundedRectangle(cornerRadius: drag > 0 ? 36 : 0, style: .continuous))
+        // Rounded only while pulled down; the mask reaches past the screen's
+        // edges, so the background still fills the very top.
+        .mask { RoundedRectangle(cornerRadius: drag > 0 ? 36 : 0, style: .continuous).ignoresSafeArea() }
         .offset(y: drag)
         .gesture(DragGesture(minimumDistance: 12)
             .onChanged { v in drag = max(0, v.translation.height) }
