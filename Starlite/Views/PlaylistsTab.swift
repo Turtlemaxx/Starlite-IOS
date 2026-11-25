@@ -206,36 +206,57 @@ private struct Bookshelf: View {
     }
 }
 
-/// A CD jewel case: the cover behind clear plastic, the hinge on the left.
+/// A playlist as a CD: its cover, with the disc sliding out behind it.
 struct CDCase: View {
     @Environment(Look.self) private var look
     var playlist: Playlist
 
     var body: some View {
         GeometryReader { g in
-            let w = g.size.width
+            let side = g.size.height
+            let disc = side * 0.92
             ZStack(alignment: .leading) {
-                ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: 2)
-                    .padding(.leading, w * 0.075)
-                // The hinge.
-                Rectangle()
-                    .fill(LinearGradient(colors: [Color.white.opacity(0.28), Color.black.opacity(0.35), Color.white.opacity(0.18)], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: w * 0.075)
-                    .overlay {
-                        VStack(spacing: w * 0.03) {
-                            ForEach(0..<9, id: \.self) { _ in Rectangle().fill(.black.opacity(0.25)).frame(height: 1) }
-                        }
-                    }
-                // Light on the plastic.
-                LinearGradient(colors: [.white.opacity(0.32), .white.opacity(0.06), .clear, .white.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .blendMode(.screen)
+                Disc(playlist: playlist)
+                    .frame(width: disc, height: disc)
+                    .offset(x: g.size.width - disc)
+                    .shadow(color: .black.opacity(0.25), radius: 4, x: 2, y: 2)
+                ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: max(3, CGFloat(look.prefs.corners) * 0.35))
+                    .frame(width: side, height: side)
+                    .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.white.opacity(0.35), lineWidth: 1))
-            .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
         }
-        .aspectRatio(1.08, contentMode: .fit)
+        .aspectRatio(1.22, contentMode: .fit)
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// A CD: silver with a faint rainbow, the cover printed on its label, a hole.
+private struct Disc: View {
+    @Environment(Look.self) private var look
+    var playlist: Playlist
+
+    var body: some View {
+        GeometryReader { g in
+            let d = g.size.width
+            ZStack {
+                Circle().fill(AngularGradient(colors: [
+                    Color(white: 0.86), Color(red: 0.80, green: 0.86, blue: 0.95), Color(white: 0.97),
+                    Color(red: 0.95, green: 0.86, blue: 0.92), Color(white: 0.82), Color(red: 0.86, green: 0.95, blue: 0.88),
+                    Color(white: 0.96), Color(white: 0.86),
+                ], center: .center))
+                // The label: the playlist's cover, printed on the disc.
+                ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: 0)
+                    .frame(width: d * 0.62, height: d * 0.62)
+                    .clipShape(Circle())
+                    .opacity(0.9)
+                Circle().strokeBorder(.white.opacity(0.55), lineWidth: 1).frame(width: d * 0.62, height: d * 0.62)
+                // The clear ring and the hole.
+                Circle().fill(Color(white: 0.9, opacity: 0.85)).frame(width: d * 0.2, height: d * 0.2)
+                Circle().fill(look.palette.background).frame(width: d * 0.09, height: d * 0.09)
+                Circle().strokeBorder(.black.opacity(0.12), lineWidth: 0.5)
+            }
+        }
+        .aspectRatio(1, contentMode: .fit)
     }
 }
 
