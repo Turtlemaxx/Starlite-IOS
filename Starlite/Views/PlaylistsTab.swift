@@ -17,10 +17,10 @@ struct PlaylistsTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 26) {
                     HStack(spacing: 14) {
-                        PinnedTile(title: "Liked Music", count: library.liked.count, symbol: "heart.fill", colors: [Color(red: 1, green: 0.32, blue: 0.48), Color(red: 0.62, green: 0.2, blue: 0.9)]) {
+                        PinnedTile(title: "Liked Music", count: library.liked.count, symbol: "heart") {
                             path.append(ListKind.liked)
                         }
-                        PinnedTile(title: "Downloaded", count: library.downloaded.count, symbol: "arrow.down.circle.fill", colors: [Color(red: 0.2, green: 0.6, blue: 1), Color(red: 0.12, green: 0.3, blue: 0.75)]) {
+                        PinnedTile(title: "Downloaded", count: library.downloaded.count, symbol: "arrow.down.circle") {
                             path.append(ListKind.downloaded)
                         }
                     }
@@ -119,17 +119,16 @@ private struct PinnedTile: View {
     var title: String
     var count: Int
     var symbol: String
-    var colors: [Color]
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: symbol)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .font(.system(size: 26))
+                    .fontWeight(look.prefs.iconWeight.weight)
+                    .foregroundStyle(look.palette.accent)
+                    .frame(height: 30)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.headline).foregroundStyle(look.palette.text)
                     Text(count == 1 ? "1 song" : "\(count) songs").font(.subheadline).foregroundStyle(look.palette.secondary)

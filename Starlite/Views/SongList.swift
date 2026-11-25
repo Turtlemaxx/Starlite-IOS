@@ -334,23 +334,36 @@ struct CollectionView: View {
     }
 }
 
-/// Liked Music's cover: a heart on the accent.
+/// Liked Music's cover: the heart, in the theme's colours.
 struct LikedCover: View {
     @Environment(Look.self) private var look
     var corner: CGFloat
     var body: some View {
-        RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 1, green: 0.32, blue: 0.48), Color(red: 0.62, green: 0.2, blue: 0.9)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(Image(systemName: "heart.fill").font(.system(size: 64, weight: .semibold)).foregroundStyle(.white))
+        PlainCover(symbol: "heart", corner: corner)
     }
 }
 
-/// Downloaded Music's cover: an arrow down.
+/// Downloaded Music's cover: the arrow, in the theme's colours.
 struct DownloadedCover: View {
     var corner: CGFloat
     var body: some View {
+        PlainCover(symbol: "arrow.down.circle", corner: corner)
+    }
+}
+
+/// A cover that's just an icon on the theme's panel colour.
+private struct PlainCover: View {
+    @Environment(Look.self) private var look
+    var symbol: String
+    var corner: CGFloat
+    var body: some View {
         RoundedRectangle(cornerRadius: corner, style: .continuous)
-            .fill(LinearGradient(colors: [Color(red: 0.2, green: 0.6, blue: 1), Color(red: 0.12, green: 0.3, blue: 0.75)], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(Image(systemName: "arrow.down.circle.fill").font(.system(size: 64, weight: .semibold)).foregroundStyle(.white))
+            .fill(look.palette.panel)
+            .overlay(
+                Image(systemName: symbol)
+                    .font(.system(size: 72))
+                    .fontWeight(look.prefs.iconWeight.weight)
+                    .foregroundStyle(look.palette.accent)
+            )
     }
 }
