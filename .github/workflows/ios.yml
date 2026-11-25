@@ -56,7 +56,12 @@ jobs:
           xcodebuild -project Starlite.xcodeproj -scheme Starlite -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error|BUILD (SUCCEEDED|FAILED)" | head -50
-          DEV=$(xcrun simctl list devices available | grep -E "iPhone 1[6-9] Pro \(" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          # An iPhone on an iOS 26 runtime (the app needs iOS 26).
+          DEV=$(xcrun simctl list -j devices available | jq -r '[.devices | to_entries[] | select(.key | test("iOS-26")) | .value[] | select(.name | test("^iPhone.*Pro$"))] | last | .udid // empty')
+          if [ -z "$DEV" ]; then
+            RT=$(xcrun simctl list -j runtimes available | jq -r '[.runtimes[] | select(.identifier | test("iOS-26"))] | last | .identifier')
+            DEV=$(xcrun simctl create "Starlite iPhone" "iPhone 17 Pro" "$RT")
+          fi
           echo "device $DEV"
           xcrun simctl boot "$DEV"
           xcrun simctl bootstatus "$DEV" -b
