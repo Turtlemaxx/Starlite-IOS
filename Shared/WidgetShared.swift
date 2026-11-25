@@ -96,6 +96,14 @@ struct WidgetSnapshot: Codable, Hashable {
     }
 }
 
+/// Everything the widget gets from the app in one reply.
+struct WidgetPayload: Codable {
+    var snap: WidgetSnapshot
+    var prefs: WidgetPrefs
+    /// Covers (JPEG) by key.
+    var covers: [String: Data]
+}
+
 /// A song coming up, as the widget will show it.
 struct WidgetSong: Codable, Hashable {
     var title: String

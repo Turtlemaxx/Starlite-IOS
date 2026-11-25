@@ -47,6 +47,8 @@ struct NowPlayingProvider: TimelineProvider {
                     list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
                 }
             }
+            let shown = snap.hasTrack ? "\(snap.playing ? "playing" : "paused"), \(art != nil ? "with" : "no") cover, \(list.count - 1) next queued" : "nothing playing"
+            await WidgetLink.report(shown)
             return list
         }
         if WidgetLink.hasGroup {

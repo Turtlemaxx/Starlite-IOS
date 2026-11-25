@@ -30,21 +30,22 @@ enum WidgetLink {
     }
 
     /// What's playing, the widget's settings and the covers (this song's and
-    /// the next ones', by key), from the app; nil when the app isn't running.
+    /// the next ones', by key), from the app in one go; nil when the app
+    /// isn't running.
     static func fetch() async -> (WidgetSnapshot, WidgetPrefs, [String: UIImage])? {
-        async let now = get("/now")
-        async let prefs = get("/prefs")
-        guard let n = await now, let snap = try? JSONDecoder().decode(WidgetSnapshot.self, from: n) else { return nil }
-        let p = await prefs.flatMap { try? JSONDecoder().decode(WidgetPrefs.self, from: $0) } ?? WidgetPrefs()
-        let keys = Array(Set(([snap.art] + snap.upcoming.map(\.art)).compactMap { $0 }))
+        guard let d = await get("/widget"), let p = try? JSONDecoder().decode(WidgetPayload.self, from: d) else { return nil }
         var covers: [String: UIImage] = [:]
-        await withTaskGroup(of: (String, UIImage?).self) { group in
-            for k in keys {
-                group.addTask { (k, await get("/art/\(k)").flatMap { UIImage(data: $0) }) }
-            }
-            for await (k, img) in group { if let img { covers[k] = img } }
+        for (k, data) in p.covers {
+            if let img = UIImage(data: data) { covers[k] = img }
         }
-        return (snap, p, covers)
+        return (p.snap, p.prefs, covers)
+    }
+
+    /// Tells the app what the widget ended up showing (shown under the
+    /// preview in Settings → Widget).
+    static func report(_ text: String) async {
+        let t = text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        _ = await get("/shown/\(t)")
     }
 
     /// Asks the app to do a button's job; true once it has.

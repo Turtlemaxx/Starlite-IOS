@@ -246,7 +246,10 @@ final class Player {
     /// arriving): the system ignores widget reloads that come too often.
     private func reloadWidgetSoon() {
         widgetReload?.cancel()
-        let w = DispatchWorkItem { AppGroup.reloadWidgets() }
+        let w = DispatchWorkItem {
+            AppGroup.reloadWidgets()
+            WidgetServer.shared.askedReload()
+        }
         widgetReload = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
     }

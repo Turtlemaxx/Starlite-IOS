@@ -42,7 +42,13 @@ struct WidgetSettings: View {
                     .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
             } footer: {
-                Text("To add it: touch and hold an empty spot on the home screen, tap Edit, Add Widget, and pick Starlite.")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("To add it: touch and hold an empty spot on the home screen, tap Edit, Add Widget, and pick Starlite.")
+                    // How the widget is doing (it gets everything from the app).
+                    TimelineView(.periodic(from: .now, by: 2)) { _ in
+                        Text(WidgetServer.shared.status())
+                    }
+                }
             }
 
             Section("Layout") {

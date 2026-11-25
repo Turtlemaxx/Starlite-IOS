@@ -1,7 +1,7 @@
 import Foundation
 import Network
 
-/// Hands the widget what's playing, its settings and the cover, on
+/// Hands the widget what's playing, its settings and the covers, on
 /// 127.0.0.1 only (nothing outside the phone can reach it), and takes its
 /// button presses. This is what makes the widget work without an App Group.
 final class WidgetServer: @unchecked Sendable {
@@ -9,27 +9,47 @@ final class WidgetServer: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "starlite.widget-server")
     private var listener: NWListener?
-    private var now = Data()
-    private var prefs = Data()
+    private var snap = WidgetSnapshot.empty
+    private var prefs = AppGroup.read(WidgetPrefs.self, "widget-prefs.json", defaults: WidgetPrefs())
     /// Covers by key: this song's and the next ones'.
     private var arts: [String: Data] = [:]
 
-    private init() {
-        prefs = (try? JSONEncoder().encode(AppGroup.read(WidgetPrefs.self, "widget-prefs.json", defaults: WidgetPrefs()))) ?? Data()
-        now = (try? JSONEncoder().encode(WidgetSnapshot.empty)) ?? Data()
-    }
+    /// What the widget last picked up, and what it said it showed (for the
+    /// line under the preview in Settings → Widget).
+    private var served: (at: Date, title: String, covers: Int, next: Int)?
+    private var shown: (at: Date, report: String)?
+    private var reloadAsked: Date?
 
-    func update(now snap: WidgetSnapshot, arts covers: [String: Data]) {
-        guard let n = try? JSONEncoder().encode(snap) else { return }
+    private init() {}
+
+    func update(now s: WidgetSnapshot, arts covers: [String: Data]) {
         queue.async {
-            self.now = n
+            self.snap = s
             self.arts = covers
         }
     }
 
     func update(prefs p: WidgetPrefs) {
-        guard let d = try? JSONEncoder().encode(p) else { return }
-        queue.async { self.prefs = d }
+        queue.async { self.prefs = p }
+    }
+
+    func askedReload() {
+        queue.async { self.reloadAsked = Date() }
+    }
+
+    /// A line about how the widget is doing.
+    func status() -> String {
+        queue.sync {
+            let f = DateFormatter()
+            f.timeStyle = .medium
+            guard let s = served else {
+                return "The widget hasn't picked up anything from Starlite yet."
+            }
+            var line = "Widget picked up “\(s.title)” at \(f.string(from: s.at)): \(s.covers) cover\(s.covers == 1 ? "" : "s"), \(s.next) next song\(s.next == 1 ? "" : "s")."
+            if let r = shown { line += " It showed: \(r.report) (\(f.string(from: r.at)))." }
+            if let a = reloadAsked { line += " Last asked to refresh at \(f.string(from: a))." }
+            return line
+        }
     }
 
     /// Starts listening (again, if the system stopped it while away).
@@ -58,32 +78,34 @@ final class WidgetServer: @unchecked Sendable {
     }
 
     private func serve(_ c: NWConnection) {
+        c.stateUpdateHandler = { state in
+            if case .failed = state { c.cancel() }
+        }
         c.start(queue: queue)
-        c.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, _, _ in
+        c.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
             guard let self, let data, let request = String(data: data, encoding: .utf8),
                   let line = request.split(separator: "\r\n").first else { c.cancel(); return }
             let parts = line.split(separator: " ")
             let path = parts.count > 1 ? String(parts[1]) : "/"
-            switch path {
-            case "/now": self.reply(c, self.now, type: "application/json")
-            case "/prefs": self.reply(c, self.prefs, type: "application/json")
-            default:
-                if path.hasPrefix("/art/") {
-                    if let a = self.arts[String(path.dropFirst(5))] { self.reply(c, a, type: "image/jpeg") } else { self.reply(c, nil) }
-                    return
+            if path == "/widget" {
+                // Everything at once: the song, the settings and the covers.
+                let payload = WidgetPayload(snap: self.snap, prefs: self.prefs, covers: self.arts)
+                self.served = (Date(), self.snap.hasTrack ? self.snap.title : "Not Playing", self.arts.count, self.snap.upcoming.count)
+                self.reply(c, try? JSONEncoder().encode(payload), type: "application/json")
+            } else if path.hasPrefix("/shown/") {
+                self.shown = (Date(), String(path.dropFirst(7)).removingPercentEncoding ?? "")
+                self.reply(c, Data("ok".utf8))
+            } else if path.hasPrefix("/cmd/"), let cmd = PlayerCommand(rawValue: String(path.dropFirst(5))) {
+                // Answers once the player has done it and has the new song's
+                // cover (the widget redraws right after).
+                Task { @MainActor in
+                    CommandBridge.handler?(cmd)
+                    await CommandBridge.settle()
+                    Player.shared.syncWidget(reload: false)
+                    self.queue.async { self.reply(c, Data("ok".utf8)) }
                 }
-                if path.hasPrefix("/cmd/"), let cmd = PlayerCommand(rawValue: String(path.dropFirst(5))) {
-                    // Answers once the player has done it and has the new
-                    // song's cover (the widget redraws right after).
-                    Task { @MainActor in
-                        CommandBridge.handler?(cmd)
-                        await CommandBridge.settle()
-                        Player.shared.syncWidget(reload: false)
-                        self.queue.async { self.reply(c, Data("ok".utf8), type: "text/plain") }
-                    }
-                } else {
-                    self.reply(c, nil)
-                }
+            } else {
+                self.reply(c, nil)
             }
         }
     }
@@ -93,6 +115,11 @@ final class WidgetServer: @unchecked Sendable {
         let b = body ?? Data()
         var out = Data("HTTP/1.1 \(status)\r\nContent-Type: \(type)\r\nContent-Length: \(b.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8)
         out.append(b)
-        c.send(content: out, completion: .contentProcessed { _ in c.cancel() })
+        // Send it all and end the stream properly; the widget closes its
+        // side once it has read everything (closing here right away could
+        // cut a big reply short).
+        c.send(content: out, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] _ in
+            self?.queue.asyncAfter(deadline: .now() + 10) { c.cancel() }
+        })
     }
 }
