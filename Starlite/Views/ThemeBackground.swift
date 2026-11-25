@@ -105,7 +105,7 @@ private struct Moving: View {
             let y = size.height + r - f / popAt * popAt * (size.height + 2 * r)
             let rect = CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)
             let fade = min(1, (popAt - f) * 12)
-            ctx.stroke(Path(ellipseIn: rect), with: .conicGradient(Gradient(colors: [.cyan, .purple, .pink, .yellow, .green, .cyan].map { $0.opacity(0.55 * fade) }), center: CGPoint(x: x, y: y)), lineWidth: 1.4)
+            ctx.stroke(Path(ellipseIn: rect), with: .conicGradient(Gradient(colors: [Color.cyan, .purple, .pink, .yellow, .green, .cyan].map { $0.opacity(0.55 * fade) }), center: CGPoint(x: x, y: y)), lineWidth: 1.4)
             ctx.fill(Path(ellipseIn: CGRect(x: x - r * 0.55, y: y - r * 0.6, width: r * 0.45, height: r * 0.3)), with: .color(.white.opacity(0.35 * fade)))
         }
     }
