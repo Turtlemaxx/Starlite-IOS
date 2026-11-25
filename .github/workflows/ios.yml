@@ -1,0 +1,83 @@
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode 26
+        run: |
+          ls -d /Applications/Xcode*.app
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      - name: Generate the Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build for iPhone (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild -project Starlite.xcodeproj -scheme Starlite -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 \
+            | grep -E "error|warning: |BUILD (SUCCEEDED|FAILED)" | grep -v "appintentsmetadataprocessor" | head -150
+
+      - name: Pack the IPA
+        run: |
+          VER=$(grep -m1 'MARKETING_VERSION' project.yml | sed 's/.*"\(.*\)"/\1/')
+          mkdir -p out/Payload
+          cp -R build/Build/Products/Release-iphoneos/Starlite.app out/Payload/
+          (cd out && zip -qry "Starlite-iOS-$VER.ipa" Payload)
+          ls -la out
+          echo "VER=$VER" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Starlite-iOS-ipa
+          path: out/*.ipa
+
+      - name: Screenshots in the simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project Starlite.xcodeproj -scheme Starlite -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
+            CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error|BUILD (SUCCEEDED|FAILED)" | head -50
+          DEV=$(xcrun simctl list devices available | grep -E "iPhone 1[6-9] Pro \(" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          echo "device $DEV"
+          xcrun simctl boot "$DEV"
+          xcrun simctl bootstatus "$DEV" -b
+          xcrun simctl status_bar "$DEV" override --time 9:41 --batteryState charged --batteryLevel 100 || true
+          xcrun simctl install "$DEV" simbuild/Build/Products/Debug-iphonesimulator/Starlite.app
+          mkdir -p shots
+          for s in playlists playlist nowplaying server settings appearance layout light bubbles; do
+            xcrun simctl launch --terminate-running-process "$DEV" io.github.turtlemaxx.starlite -StarliteDemo YES -StarliteScreen "$s"
+            sleep 7
+            xcrun simctl io "$DEV" screenshot "shots/$s.png"
+          done
+          ls shots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" out/*.ipa --title "Starlite for iOS $VER" --notes-file RELEASE_NOTES.md

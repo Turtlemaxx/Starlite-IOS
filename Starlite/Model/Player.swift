@@ -1,0 +1,305 @@
+import AVFoundation
+import MediaPlayer
+import SwiftUI
+
+enum RepeatMode: String, Codable {
+    case off, all, one
+    var symbol: String { self == .one ? "repeat.1" : "repeat" }
+}
+
+/// Plays a queue of songs (from a server or this iPhone), in the
+/// background too, with the lock screen's controls.
+@Observable
+final class Player {
+    private(set) var queue: [Track] = []
+    private(set) var index = 0
+    private(set) var playing = false
+    var position: Double = 0
+    private(set) var duration: Double = 0
+    private(set) var shuffle = false
+    var repeatMode: RepeatMode = .off
+    private(set) var error: String?
+    /// The current cover (for the full-screen player's background).
+    private(set) var artworkImage: UIImage?
+
+    @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private var original: [Track] = []
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var statusObserver: NSKeyValueObservation?
+    @ObservationIgnored private weak var services: Services?
+    @ObservationIgnored private weak var library: Library?
+    @ObservationIgnored private weak var look: Look?
+    @ObservationIgnored private var sessionReady = false
+    @ObservationIgnored private var artTask: Task<Void, Never>?
+
+    var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
+    var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
+
+    func configure(services: Services, library: Library, look: Look) {
+        self.services = services
+        self.library = library
+        self.look = look
+        player.automaticallyWaitsToMinimizeStalling = true
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] t in
+            guard let self else { return }
+            self.position = CMTimeGetSeconds(t)
+            if let d = self.player.currentItem?.duration, d.isNumeric {
+                let s = CMTimeGetSeconds(d)
+                if s.isFinite, s > 0, abs(s - self.duration) > 0.5 { self.duration = s }
+            }
+        }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: nil, queue: .main) { [weak self] n in
+            guard let self, (n.object as? AVPlayerItem) === self.player.currentItem else { return }
+            self.finished()
+        }
+        remoteCommands()
+    }
+
+    // MARK: What plays
+
+    func play(_ list: [Track], at i: Int = 0, shuffled: Bool = false) {
+        guard !list.isEmpty else { return }
+        original = list
+        shuffle = shuffled
+        if shuffled {
+            var rest = list
+            let first = rest.remove(at: min(i, rest.count - 1))
+            queue = (shuffled && i == 0 ? list.shuffled() : [first] + rest.shuffled())
+            index = 0
+        } else {
+            queue = list
+            index = min(i, list.count - 1)
+        }
+        playing = true
+        load()
+    }
+
+    /// Fills the player without playing (the screenshots' demo).
+    func show(_ list: [Track], at i: Int, position: Double) {
+        queue = list
+        index = i
+        duration = list[i].duration
+        self.position = position
+        playing = false
+        artworkImage = nil
+    }
+
+    func playNext(_ t: Track) {
+        if queue.isEmpty { play([t]); return }
+        queue.insert(t, at: index + 1)
+    }
+
+    func addToQueue(_ t: Track) {
+        if queue.isEmpty { play([t]); return }
+        queue.append(t)
+    }
+
+    func jump(to i: Int) {
+        guard queue.indices.contains(i) else { return }
+        index = i
+        playing = true
+        load()
+    }
+
+    func toggle() {
+        guard current != nil else { return }
+        if playing {
+            player.pause()
+            playing = false
+        } else {
+            if player.currentItem == nil { load() }
+            activateSession()
+            player.play()
+            playing = true
+        }
+        updateNowPlaying()
+    }
+
+    func next() {
+        guard !queue.isEmpty else { return }
+        if index + 1 < queue.count {
+            index += 1
+        } else if repeatMode == .all {
+            index = 0
+        } else {
+            return
+        }
+        load()
+    }
+
+    func previous() {
+        guard !queue.isEmpty else { return }
+        if position > 3 || index == 0 {
+            seek(to: 0)
+            return
+        }
+        index -= 1
+        load()
+    }
+
+    func seek(to seconds: Double) {
+        position = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        updateNowPlaying()
+    }
+
+    func setShuffle(_ on: Bool) {
+        guard let cur = current else { shuffle = on; return }
+        shuffle = on
+        if on {
+            var rest = queue
+            rest.remove(at: index)
+            queue = [cur] + rest.shuffled()
+            index = 0
+        } else {
+            queue = original.isEmpty ? queue : original
+            index = queue.firstIndex(of: cur) ?? 0
+        }
+    }
+
+    func cycleRepeat() {
+        repeatMode = repeatMode == .off ? .all : repeatMode == .all ? .one : .off
+    }
+
+    private func finished() {
+        if repeatMode == .one {
+            seek(to: 0)
+            player.play()
+            return
+        }
+        if index + 1 < queue.count || repeatMode == .all {
+            next()
+        } else {
+            playing = false
+            seek(to: 0)
+            player.pause()
+        }
+    }
+
+    // MARK: Loading
+
+    private func activateSession() {
+        guard !sessionReady else { return }
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        sessionReady = true
+    }
+
+    private func load() {
+        guard let t = current else { return }
+        error = nil
+        position = 0
+        duration = t.duration
+        let quality = look?.prefs.stream ?? .original
+        // A downloaded copy plays instead of streaming.
+        let playable = library?.localCopy(of: t) ?? t
+        guard let url = services?.url(for: playable, quality: quality) else {
+            error = "Connect \(t.id.hasPrefix("jf:") ? "Jellyfin" : "Navidrome") in Settings to play this song"
+            playing = false
+            player.replaceCurrentItem(with: nil)
+            updateNowPlaying()
+            return
+        }
+        activateSession()
+        let item = AVPlayerItem(url: url)
+        statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async {
+                self?.error = "This song couldn't be played"
+                self?.playing = false
+            }
+        }
+        player.replaceCurrentItem(with: item)
+        if playing { player.play() }
+        updateNowPlaying()
+        loadArtwork(t)
+    }
+
+    private func loadArtwork(_ t: Track) {
+        artTask?.cancel()
+        artworkImage = nil
+        guard let u = t.artwork else { look?.coverColor = nil; return }
+        artTask = Task { [weak self] in
+            let data: Data?
+            if u.isFileURL {
+                data = try? Data(contentsOf: u)
+            } else {
+                data = try? await URLSession.shared.data(from: u).0
+            }
+            guard !Task.isCancelled, let data, let img = UIImage(data: data) else { return }
+            await MainActor.run {
+                guard let self, self.current?.id == t.id else { return }
+                self.artworkImage = img
+                self.look?.coverColor = img.averageColor
+                self.updateNowPlaying()
+            }
+        }
+    }
+
+    // MARK: Lock screen
+
+    private func updateNowPlaying() {
+        guard let t = current else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: t.title,
+            MPMediaItemPropertyArtist: t.artist,
+            MPMediaItemPropertyPlaybackDuration: duration,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: position,
+            MPNowPlayingInfoPropertyPlaybackRate: playing ? 1.0 : 0.0,
+        ]
+        if let a = t.album { info[MPMediaItemPropertyAlbumTitle] = a }
+        if let img = artworkImage {
+            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: img.size) { _ in img }
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func remoteCommands() {
+        let c = MPRemoteCommandCenter.shared()
+        c.playCommand.addTarget { [weak self] _ in
+            guard let self, !self.playing else { return .success }
+            self.toggle()
+            return .success
+        }
+        c.pauseCommand.addTarget { [weak self] _ in
+            guard let self, self.playing else { return .success }
+            self.toggle()
+            return .success
+        }
+        c.togglePlayPauseCommand.addTarget { [weak self] _ in
+            self?.toggle()
+            return .success
+        }
+        c.nextTrackCommand.addTarget { [weak self] _ in
+            self?.next()
+            return .success
+        }
+        c.previousTrackCommand.addTarget { [weak self] _ in
+            self?.previous()
+            return .success
+        }
+        c.changePlaybackPositionCommand.addTarget { [weak self] e in
+            guard let e = e as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            self?.seek(to: e.positionTime)
+            return .success
+        }
+    }
+}
+
+extension UIImage {
+    /// The picture's average colour, a little livelier (for the accent).
+    var averageColor: Color? {
+        guard let cg = cgImage else { return nil }
+        var px = [UInt8](repeating: 0, count: 4)
+        guard let ctx = CGContext(data: &px, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1).getHue(&h, saturation: &s, brightness: &b, alpha: &a)
+        return Color(hue: Double(h), saturation: Double(min(1, s * 1.4)), brightness: Double(max(0.55, min(1, b * 1.3))))
+    }
+}

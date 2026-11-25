@@ -1,0 +1,53 @@
+# The Xcode project is generated from this file (XcodeGen): `xcodegen generate`.
+name: Starlite
+options:
+  bundleIdPrefix: io.github.turtlemaxx
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+targets:
+  Starlite:
+    type: application
+    platform: iOS
+    sources:
+      - Starlite
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.turtlemaxx.starlite
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_FILE: Starlite/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Starlite/Info.plist
+      properties:
+        CFBundleDisplayName: Starlite
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen:
+          UIColorName: ""
+        UIBackgroundModes: [audio]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Starlite connects to your Navidrome or Jellyfin server on your network.
+        NSPhotoLibraryUsageDescription: Pick a picture for your own theme's background.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+    scheme: {}
