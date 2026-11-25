@@ -42,13 +42,7 @@ struct WidgetSettings: View {
                     .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
             } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("To add it: touch and hold an empty spot on the home screen, tap Edit, Add Widget, and pick Starlite.")
-                    // How the widget is doing (it gets everything from the app).
-                    TimelineView(.periodic(from: .now, by: 2)) { _ in
-                        Text(WidgetServer.shared.status())
-                    }
-                }
+                Text("To add it: touch and hold an empty spot on the home screen, tap Edit, Add Widget, and pick Starlite.")
             }
 
             Section("Layout") {
@@ -150,6 +144,13 @@ struct WidgetSettings: View {
                     slider("Progress Bar", value: $prefs.progressHeight, range: 2...10, step: 1, text: "\(Int(prefs.progressHeight)) pt")
                 }
                 slider("Edges", value: $prefs.padding, range: 6...24, step: 1, text: "\(Int(prefs.padding)) pt")
+            }
+            .groupBackground(look)
+
+            Section {
+                NavigationLink("Widget Log") { WidgetLogView() }
+            } footer: {
+                Text("What happened between Starlite and the widget, if it doesn't keep up.")
             }
             .groupBackground(look)
 

@@ -50,6 +50,9 @@ final class Player {
     @ObservationIgnored private var widgetCovers: [String: (data: Data, color: RGBA?)] = [:]
     @ObservationIgnored private var widgetFetching: Set<String> = []
     @ObservationIgnored private var widgetReload: DispatchWorkItem?
+    /// What the widget was last asked to show (no refresh if nothing changed:
+    /// the system only allows so many).
+    @ObservationIgnored private var widgetShown = ""
 
     /// Whether the widget can be drawn with this song's cover now.
     var widgetReady: Bool {
@@ -239,16 +242,22 @@ final class Player {
         // Without an App Group (sideloaded), the widget asks the app itself.
         WidgetServer.shared.update(now: s, arts: covers)
         prefetchWidgetCovers()
-        if reload { reloadWidgetSoon() }
+        if reload { reloadWidgetSoon(s) }
     }
 
     /// One redraw for a burst of changes (a song starting, then its cover
     /// arriving): the system ignores widget reloads that come too often.
-    private func reloadWidgetSoon() {
+    private func reloadWidgetSoon(_ s: WidgetSnapshot) {
+        // What can be seen: a seek moves the start by more than 2 seconds.
+        let seen = [s.title, s.artist, "\(s.playing)", "\(Int((s.startDate.timeIntervalSince1970 / 2).rounded()))", "\(s.liked)",
+                    s.art ?? "-", "\(s.coverColor.map { "\($0)" } ?? "-")", s.upcoming.map { "\($0.title)\($0.art ?? "-")" }.joined()].joined(separator: "|")
+        guard seen != widgetShown else { return }
         widgetReload?.cancel()
-        let w = DispatchWorkItem {
+        let w = DispatchWorkItem { [weak self] in
+            self?.widgetShown = seen
             AppGroup.reloadWidgets()
             WidgetServer.shared.askedReload()
+            WidgetLog.shared.add("Asked the widget to refresh: “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
         }
         widgetReload = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
@@ -275,7 +284,10 @@ final class Player {
                 await MainActor.run {
                     guard let self else { return }
                     self.widgetFetching.remove(t.id)
-                    guard let small else { return }
+                    guard let small else {
+                        WidgetLog.shared.add("Couldn't load the cover of “\(t.title)” for the widget.")
+                        return
+                    }
                     self.widgetCovers[t.id] = (small, color)
                     self.syncWidget()
                 }
@@ -427,7 +439,11 @@ final class Player {
             } else {
                 data = try? await URLSession.shared.data(from: u).0
             }
-            guard !Task.isCancelled, let data, let img = UIImage(data: data) else { return }
+            guard !Task.isCancelled else { return }
+            guard let data, let img = UIImage(data: data) else {
+                WidgetLog.shared.add("Couldn't load the cover of “\(t.title)”.")
+                return
+            }
             await MainActor.run {
                 guard let self, self.current?.id == t.id else { return }
                 self.artworkImage = img

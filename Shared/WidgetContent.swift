@@ -154,7 +154,7 @@ struct WidgetContent: View {
     }
 
     private var art: Image {
-        if let artwork { return Image(uiImage: artwork).resizable() }
+        if let artwork { return Image(uiImage: artwork).resizable().widgetAccentedRenderingMode(.fullColor) }
         return Image(systemName: "music.note").resizable()
     }
 
@@ -162,7 +162,9 @@ struct WidgetContent: View {
         ZStack {
             RoundedRectangle(cornerRadius: prefs.artworkCorner, style: .continuous).fill(accent.opacity(0.18))
             if let artwork {
-                Image(uiImage: artwork).resizable().scaledToFill()
+                Image(uiImage: artwork).resizable()
+                    .widgetAccentedRenderingMode(.fullColor)
+                    .scaledToFill()
             } else {
                 Image(systemName: "music.note").font(.system(size: side * 0.34)).foregroundStyle(accent)
             }
@@ -259,7 +261,9 @@ struct WidgetBackdrop: View {
             switch effective {
             case .cover:
                 if let artwork {
-                    Image(uiImage: artwork).resizable().scaledToFill().blur(radius: 30).scaleEffect(1.3)
+                    Image(uiImage: artwork).resizable()
+                        .widgetAccentedRenderingMode(.fullColor)
+                        .scaledToFill().blur(radius: 30).scaleEffect(1.3)
                 } else {
                     snap.themeBackground.color
                 }

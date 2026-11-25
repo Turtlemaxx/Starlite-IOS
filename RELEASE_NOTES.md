@@ -1,8 +1,8 @@
-**Starlite for iPhone 0.3.3**
+**Starlite for iPhone 0.3.4**
 
-- **The widget's covers:** the app now hands the widget the song, its settings and the covers in one reply and ends it properly (big replies such as covers could get cut short before, so the widget dropped them, and the blurred-cover background with them).
-- The widget gets the next songs ahead of time and moves on by itself when a song ends.
-- The time left sits at the right edge of the widget.
-- Settings → Widget shows, under the preview, what the widget last picked up from Starlite and what it showed.
+- **The widget's cover stays in full colour** on Clear and Tinted home screens (the system drew it as a flat tinted shape there).
+- **Fewer, better-timed refreshes:** Starlite only asks the widget to refresh when something you can see changes (a new song, play / pause, a jump in the song, a like, a cover arriving). The system stops listening to an app that asks too often.
+- **Widget Log** (Settings → Widget): what happened between Starlite and the widget, with Copy and Share, for when it doesn't keep up.
+- The widget gets everything in one reply from the app, moves on by itself when a song ends, and shows the time left at the right edge.
 
 **Install:** needs iOS 26. The IPA isn't signed: install it with Feather, AltStore or Sideloadly.

@@ -102,6 +102,7 @@ struct RootView: View {
             if p == .active {
                 Task { await library.scan() }
                 WidgetServer.shared.start()
+                WidgetLog.shared.noteWidgets()
             }
         }
         .onAppear {

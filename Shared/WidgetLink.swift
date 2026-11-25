@@ -44,7 +44,7 @@ enum WidgetLink {
     /// Tells the app what the widget ended up showing (shown under the
     /// preview in Settings → Widget).
     static func report(_ text: String) async {
-        let t = text.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
+        let t = text.addingPercentEncoding(withAllowedCharacters: .alphanumerics)?.prefix(1500) ?? ""
         _ = await get("/shown/\(t)")
     }
 

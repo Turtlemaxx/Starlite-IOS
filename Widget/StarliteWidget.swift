@@ -47,7 +47,7 @@ struct NowPlayingProvider: TimelineProvider {
                     list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
                 }
             }
-            let shown = snap.hasTrack ? "\(snap.playing ? "playing" : "paused"), \(art != nil ? "with" : "no") cover, \(list.count - 1) next queued" : "nothing playing"
+            let shown = (snap.hasTrack ? "“\(snap.title)” \(snap.playing ? "playing" : "paused") at \(Int(snap.elapsed))s, \(art != nil ? "with" : "no") cover, \(list.count - 1) next songs queued" : "nothing playing") + "; last time it was \(RenderNote.last)"
             await WidgetLink.report(shown)
             return list
         }
@@ -97,9 +97,22 @@ private enum Cache {
     }
 }
 
+/// How the system last drew the widget (Clear / Tinted home screens draw
+/// it differently), for the log in the app.
+enum RenderNote {
+    static func save(_ mode: WidgetRenderingMode, background: Bool, cover: Bool) {
+        let m = mode == .fullColor ? "full colour" : mode == .accented ? "tinted (Clear/Tinted home screen)" : mode == .vibrant ? "vibrant" : "\(mode)"
+        UserDefaults.standard.set("drawn \(m), background \(background ? "shown" : "removed by the system"), cover \(cover ? "there" : "missing")", forKey: "renderNote")
+    }
+    static var last: String { UserDefaults.standard.string(forKey: "renderNote") ?? "not drawn yet" }
+}
+
 struct StarliteWidgetView: View {
     var entry: NowPlayingEntry
+    @Environment(\.widgetRenderingMode) private var mode
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
     var body: some View {
+        let _ = RenderNote.save(mode, background: showsBackground, cover: entry.artwork != nil)
         WidgetContent(snap: entry.snap, prefs: entry.prefs, artwork: entry.artwork)
             .containerBackground(for: .widget) {
                 WidgetBackdrop(snap: entry.snap, prefs: entry.prefs, artwork: entry.artwork)
