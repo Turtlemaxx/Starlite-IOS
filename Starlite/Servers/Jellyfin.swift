@@ -71,9 +71,10 @@ struct Jellyfin {
             URLQueryItem(name: "api_key", value: login.token),
             // What iOS plays as it is; anything else becomes AAC.
             URLQueryItem(name: "Container", value: "mp3,aac,m4a|aac,m4a|alac,m4b|aac,flac,alac,wav"),
-            URLQueryItem(name: "TranscodingContainer", value: "ts"),
-            URLQueryItem(name: "TranscodingProtocol", value: "hls"),
-            URLQueryItem(name: "AudioCodec", value: "aac"),
+            // A plain stream (not HLS), so the equalizer works on it too.
+            URLQueryItem(name: "TranscodingContainer", value: "mp3"),
+            URLQueryItem(name: "TranscodingProtocol", value: "http"),
+            URLQueryItem(name: "AudioCodec", value: "mp3"),
         ]
         if let t = quality.transcode {
             q.append(URLQueryItem(name: "MaxStreamingBitrate", value: String(t.kbps * 1000)))

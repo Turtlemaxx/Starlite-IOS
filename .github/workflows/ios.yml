@@ -68,7 +68,7 @@ jobs:
           xcrun simctl status_bar "$DEV" override --time 9:41 --batteryState charged --batteryLevel 100 || true
           xcrun simctl install "$DEV" simbuild/Build/Products/Debug-iphonesimulator/Starlite.app
           mkdir -p shots
-          for s in playlists playlist nowplaying server settings appearance layout light bubbles; do
+          for s in playlists playlist nowplaying lyrics server search settings appearance sound layout list light bubbles; do
             xcrun simctl launch --terminate-running-process "$DEV" io.github.turtlemaxx.starlite -StarliteDemo YES -StarliteScreen "$s"
             sleep 7
             xcrun simctl io "$DEV" screenshot "shots/$s.png"

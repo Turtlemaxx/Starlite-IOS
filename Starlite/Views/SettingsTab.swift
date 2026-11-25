@@ -5,9 +5,10 @@ import SwiftUI
 struct SettingsTab: View {
     @Environment(Look.self) private var look
     @Environment(Services.self) private var services
+    @Environment(LastFM.self) private var lastfm
     @State private var path = NavigationPath()
 
-    enum Page: Hashable { case appearance, layout, playback, general }
+    enum Page: Hashable { case appearance, layout, playback, sound, equalizer, lastfm, general }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -23,40 +24,49 @@ struct SettingsTab: View {
                     }
                     .padding(.vertical, 6)
                 }
-                .listRowBackground(rowBackground)
+                .groupBackground(look)
 
                 Section {
-                    row(.appearance, "Appearance", "paintpalette.fill", .purple)
-                    row(.layout, "Layout", "rectangle.3.group.fill", .blue)
+                    row(.appearance, "Appearance", symbol: "paintpalette")
+                    row(.layout, "Layout", symbol: "rectangle.3.group")
                 }
-                .listRowBackground(rowBackground)
+                .groupBackground(look)
 
                 Section("Sound") {
-                    row(.playback, "Playback", "headphones", .orange)
+                    row(.playback, "Playback", symbol: "play.circle")
+                    row(.sound, "Sound", symbol: "slider.horizontal.3")
                 }
-                .listRowBackground(rowBackground)
+                .groupBackground(look)
 
                 Section("Services") {
                     ForEach(ServerKind.allCases) { s in
                         NavigationLink(value: s) {
                             HStack(spacing: 12) {
-                                SymbolBadge(symbol: s.symbol, color: s == .navidrome ? .blue : .indigo)
+                                RowIcon(logo: s.logo)
                                 Text(s.name)
                                 Spacer()
                                 Text(services.isConnected(s) ? "Connected" : "Not set up").foregroundStyle(look.palette.secondary)
                             }
                         }
                     }
+                    NavigationLink(value: Page.lastfm) {
+                        HStack(spacing: 12) {
+                            RowIcon(logo: "LogoLastfm")
+                            Text("Last.fm")
+                            Spacer()
+                            Text(lastfm.login != nil ? "Connected" : "Not set up").foregroundStyle(look.palette.secondary)
+                        }
+                    }
                 }
-                .listRowBackground(rowBackground)
+                .groupBackground(look)
 
                 Section {
-                    row(.general, "General", "gearshape.fill", .gray)
+                    row(.general, "General", symbol: "gearshape")
                 }
-                .listRowBackground(rowBackground)
+                .groupBackground(look)
             }
             .themed(look)
-        .tint(look.controlTint)
+            .tint(look.controlTint)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(look.prefs.bigTitles ? .large : .inline)
             .navigationDestination(for: Page.self) { p in
@@ -64,6 +74,9 @@ struct SettingsTab: View {
                 case .appearance: AppearanceSettings()
                 case .layout: LayoutSettings()
                 case .playback: PlaybackSettings()
+                case .sound: SoundSettings()
+                case .equalizer: EqualizerSettings()
+                case .lastfm: LastFMSettings()
                 case .general: GeneralSettings()
                 }
             }
@@ -72,34 +85,31 @@ struct SettingsTab: View {
                 if path.isEmpty {
                     if DemoScreen.current == .appearance { path.append(Page.appearance) }
                     if DemoScreen.current == .layout { path.append(Page.layout) }
+                    if DemoScreen.current == .sound { path.append(Page.sound) }
                 }
             }
         }
     }
 
-    private var rowBackground: some View {
-        Rectangle().fill(.clear).panel(look, radius: 0)
-    }
-
-    private func row(_ p: Page, _ title: String, _ symbol: String, _ color: Color) -> some View {
+    private func row(_ p: Page, _ title: String, symbol: String) -> some View {
         NavigationLink(value: p) {
             HStack(spacing: 12) {
-                SymbolBadge(symbol: symbol, color: color)
+                RowIcon(symbol: symbol)
                 Text(title)
             }
         }
     }
 }
 
-/// The glass (or frosted, or solid) behind each group of rows.
+/// What's behind each group of rows (solid, or a material for the glass looks).
 private struct GroupBackground: ViewModifier {
     var look: Look
     func body(content: Content) -> some View {
-        content.listRowBackground(Rectangle().fill(.clear).panel(look, radius: 0))
+        content.listRowBackground(look.rowFill)
     }
 }
 
-private extension View {
+extension View {
     func groupBackground(_ look: Look) -> some View { modifier(GroupBackground(look: look)) }
 }
 
@@ -400,6 +410,15 @@ struct PlaybackSettings: View {
                 Text("Original plays songs as they're stored on your server. The others ask the server to convert them, which saves data on mobile networks (Navidrome needs that format set up under Settings, Transcoding). Formats iPhone can't play are always converted.")
             }
             .groupBackground(look)
+
+            Section {
+                Toggle("Find Lyrics Online", isOn: $look.prefs.lyricsOnline)
+            } header: {
+                Text("Lyrics")
+            } footer: {
+                Text("Timed lyrics for the song you're playing, from lrclib.net (the same as Starlite on the computer).")
+            }
+            .groupBackground(look)
         }
         .themed(look)
         .tint(look.controlTint)
@@ -455,6 +474,272 @@ struct GeneralSettings: View {
             }
         } message: {
             Text("You can download them again from your server.")
+        }
+    }
+}
+
+// MARK: - Sound
+
+/// Speed, bass, clarity, balance, mono, and the way to the equalizer.
+struct SoundSettings: View {
+    @Environment(Look.self) private var look
+    @Environment(Sound.self) private var sound
+
+    var body: some View {
+        @Bindable var sound = sound
+        Form {
+            Section {
+                sliderRow("Speed", value: $sound.prefs.speed, range: 0.5...2, step: 0.05, text: String(format: "%.2f×", sound.prefs.speed))
+                Toggle("Keep the Pitch", isOn: $sound.prefs.keepPitch)
+            } header: {
+                Text("Speed")
+            } footer: {
+                Text("Off: faster songs sound higher, like a record spun faster.")
+            }
+            .groupBackground(look)
+
+            Section("Tone") {
+                sliderRow("Bass", value: $sound.prefs.bass, range: -12...12, step: 0.5, text: db(sound.prefs.bass))
+                sliderRow("Clarity", value: $sound.prefs.clarity, range: -12...12, step: 0.5, text: db(sound.prefs.clarity))
+                NavigationLink(value: SettingsTab.Page.equalizer) {
+                    HStack {
+                        Text("Equalizer")
+                        Spacer()
+                        Text(sound.prefs.eqOn ? "On" : "Off").foregroundStyle(look.palette.secondary)
+                    }
+                }
+            }
+            .groupBackground(look)
+
+            Section {
+                sliderRow("Balance", value: $sound.prefs.balance, range: -1...1, step: 0.05, text: balance(sound.prefs.balance))
+                Toggle("Mono", isOn: $sound.prefs.mono)
+            } header: {
+                Text("Output")
+            } footer: {
+                Text("For your own files and server songs. Everything here is off by default: then songs play exactly as they are.")
+            }
+            .groupBackground(look)
+
+            Section {
+                Button("Reset Sound", role: .destructive) { withAnimation { sound.prefs = SoundPrefs() } }
+                    .disabled(sound.prefs == SoundPrefs())
+            }
+            .groupBackground(look)
+        }
+        .themed(look)
+        .tint(look.controlTint)
+        .navigationTitle("Sound")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func db(_ v: Double) -> String {
+        v == 0 ? "0 dB" : String(format: "%+.1f dB", v)
+    }
+
+    private func balance(_ v: Double) -> String {
+        abs(v) < 0.025 ? "Centre" : (v < 0 ? "L \(Int(-v * 100)) %" : "R \(Int(v * 100)) %")
+    }
+
+    private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(text).monospacedDigit().foregroundStyle(look.palette.secondary)
+            }
+            Slider(value: value, in: range, step: step)
+        }
+    }
+}
+
+/// Ten bands and a preamp, with presets.
+struct EqualizerSettings: View {
+    @Environment(Look.self) private var look
+    @Environment(Sound.self) private var sound
+
+    var body: some View {
+        @Bindable var sound = sound
+        Form {
+            Section {
+                Toggle("Equalizer", isOn: $sound.prefs.eqOn)
+            }
+            .groupBackground(look)
+
+            Section("Presets") {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(SoundPrefs.presets, id: \.0) { name, gains in
+                            let on = sound.prefs.eq == gains
+                            Button(name) {
+                                withAnimation(.snappy) {
+                                    sound.prefs.eq = gains
+                                    sound.prefs.eqOn = true
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(on ? look.controlTint : look.palette.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .scrollIndicators(.hidden)
+            }
+            .groupBackground(look)
+
+            Section {
+                HStack(alignment: .bottom, spacing: 0) {
+                    band("Pre", value: $sound.prefs.preamp)
+                    Divider().frame(height: 170).padding(.horizontal, 2)
+                    ForEach(0..<10, id: \.self) { k in
+                        band(label(SoundPrefs.bands[k]), value: $sound.prefs.eq[k])
+                    }
+                }
+                .padding(.vertical, 8)
+                .opacity(sound.prefs.eqOn ? 1 : 0.45)
+                .disabled(!sound.prefs.eqOn)
+            } header: {
+                Text("Bands")
+            } footer: {
+                Text("Drag up to boost, down to cut (±12 dB).")
+            }
+            .groupBackground(look)
+        }
+        .themed(look)
+        .tint(look.controlTint)
+        .navigationTitle("Equalizer")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func label(_ f: Double) -> String {
+        f >= 1000 ? "\(Int(f / 1000))k" : "\(Int(f))"
+    }
+
+    /// One band: a vertical slider with its value over it and the frequency under it.
+    private func band(_ name: String, value: Binding<Double>) -> some View {
+        VStack(spacing: 6) {
+            Text(value.wrappedValue == 0 ? "0" : String(format: "%+.0f", value.wrappedValue))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(look.palette.secondary)
+            VerticalSlider(value: value, range: -12...12)
+                .frame(width: 26, height: 150)
+            Text(name).font(.caption2).foregroundStyle(look.palette.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// A thin vertical slider (drag up and down; double tap: back to 0).
+private struct VerticalSlider: View {
+    @Environment(Look.self) private var look
+    @Binding var value: Double
+    var range: ClosedRange<Double>
+
+    var body: some View {
+        GeometryReader { g in
+            let h = g.size.height
+            let f = (value - range.lowerBound) / (range.upperBound - range.lowerBound)
+            let zero = (0 - range.lowerBound) / (range.upperBound - range.lowerBound)
+            ZStack {
+                Capsule().fill(look.palette.secondary.opacity(0.25)).frame(width: 4)
+                // The part between 0 and the value.
+                let top = h * (1 - max(f, zero)), bottom = h * (1 - min(f, zero))
+                Capsule().fill(look.controlTint)
+                    .frame(width: 4, height: max(0, bottom - top))
+                    .position(x: g.size.width / 2, y: (top + bottom) / 2)
+                Circle().fill(.white)
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .frame(width: 20, height: 20)
+                    .position(x: g.size.width / 2, y: h * (1 - f))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { v in
+                let t = 1 - max(0, min(1, v.location.y / h))
+                let raw = range.lowerBound + t * (range.upperBound - range.lowerBound)
+                value = (raw * 2).rounded() / 2
+            })
+            .onTapGesture(count: 2) { value = 0 }
+        }
+    }
+}
+
+// MARK: - Last.fm
+
+/// Your own Last.fm API account, then allow Starlite in the browser.
+struct LastFMSettings: View {
+    @Environment(Look.self) private var look
+    @Environment(LastFM.self) private var lastfm
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var phase
+    @State private var busy = false
+
+    var body: some View {
+        @Bindable var lastfm = lastfm
+        Form {
+            if let l = lastfm.login {
+                Section {
+                    LabeledContent("Connected as", value: l.user)
+                    if let s = lastfm.lastScrobble {
+                        LabeledContent("Last scrobble", value: s)
+                    }
+                    Button("Disconnect", role: .destructive) { lastfm.disconnect() }
+                } footer: {
+                    Text("Starlite shows what you play on Last.fm and scrobbles a song once you've heard half of it (or 4 minutes).")
+                }
+                .groupBackground(look)
+            } else {
+                Section {
+                    TextField("API key", text: $lastfm.apiKey)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    SecureField("Shared secret", text: $lastfm.secret)
+                } header: {
+                    Text("Your Last.fm API account")
+                } footer: {
+                    Text("Make one at last.fm/api/account/create (any name works), then paste its API key and shared secret here.")
+                }
+                .groupBackground(look)
+
+                Section {
+                    if lastfm.pendingToken == nil {
+                        Button {
+                            Task {
+                                busy = true
+                                if let u = await lastfm.start() { openURL(u) }
+                                busy = false
+                            }
+                        } label: {
+                            HStack { Text("Connect").fontWeight(.semibold); Spacer(); if busy { ProgressView() } }
+                        }
+                        .disabled(busy)
+                    } else {
+                        Button {
+                            Task { busy = true; await lastfm.finish(); busy = false }
+                        } label: {
+                            HStack { Text("I've Allowed Starlite").fontWeight(.semibold); Spacer(); if busy { ProgressView() } }
+                        }
+                        Button("Start Over") { lastfm.pendingToken = nil }
+                    }
+                } footer: {
+                    if let s = lastfm.status {
+                        Text(s).foregroundStyle(.red)
+                    } else if lastfm.pendingToken != nil {
+                        Text("Allow Starlite on the page that opened, then come back.")
+                    }
+                }
+                .groupBackground(look)
+            }
+        }
+        .themed(look)
+        .tint(look.controlTint)
+        .navigationTitle("Last.fm")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: phase) { _, p in
+            // Back from the browser: finish signing in by itself.
+            if p == .active, lastfm.pendingToken != nil, lastfm.login == nil {
+                Task { await lastfm.finish() }
+            }
         }
     }
 }

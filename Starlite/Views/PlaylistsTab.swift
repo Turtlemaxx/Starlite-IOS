@@ -1,10 +1,43 @@
 import SwiftUI
 
-/// Your music: Liked and Downloaded on top, then your playlists as big CD
-/// cases on shelves (or a list).
+/// Something on the shelf: one of your playlists or one on a server.
+struct ShelfItem: Identifiable, Hashable {
+    var id: String
+    var name: String
+    var subtitle: String
+    var artwork: URL?
+    var symbol: String
+    var kind: ListKind
+    /// Your playlist's songs (server playlists load when opened).
+    var tracks: [Track]?
+
+    init(_ p: Playlist) {
+        id = "p-" + p.id
+        name = p.name
+        subtitle = songCount(p.tracks)
+        artwork = p.artwork
+        symbol = p.symbol
+        kind = .playlist(p.id)
+        tracks = p.tracks
+    }
+
+    init(_ c: ServerCollection) {
+        id = "s-" + c.server.rawValue + "-" + c.id
+        name = c.name
+        subtitle = c.subtitle
+        artwork = c.artwork
+        symbol = "music.note.list"
+        kind = .server(c)
+        tracks = nil
+    }
+}
+
+/// Your music: Liked and Downloaded on top, then your playlists and your
+/// servers' playlists, as CDs on shelves or as a list.
 struct PlaylistsTab: View {
     @Environment(Look.self) private var look
     @Environment(Library.self) private var library
+    @Environment(Services.self) private var services
     @Environment(Player.self) private var player
     @State private var path = NavigationPath()
     @State private var naming = false
@@ -28,35 +61,18 @@ struct PlaylistsTab: View {
                         .matchedTransitionSource(id: ListKind.downloaded.zoomId, in: zoom)
                     }
 
-                    HStack(alignment: .firstTextBaseline) {
-                        SectionTitle(title: "Your Playlists")
-                        Text("\(library.playlists.count)").foregroundStyle(look.palette.secondary)
+                    section("Your Playlists", count: library.playlists.count, items: library.playlists.map(ShelfItem.init)) {
+                        emptyShelf
                     }
 
-                    if library.playlists.isEmpty {
-                        emptyShelf
-                    } else if look.prefs.shelf {
-                        Bookshelf(playlists: library.playlists, zoom: zoom, open: { path.append(ListKind.playlist($0.id)) }, rename: { renaming = $0; newName = $0.name }, delete: { deleting = $0 })
-                    } else {
-                        LazyVStack(spacing: 0) {
-                            ForEach(library.playlists) { p in
-                                Button { path.append(ListKind.playlist(p.id)) } label: {
-                                    HStack(spacing: 14) {
-                                        ArtworkView(url: p.artwork, seed: p.name, symbol: p.symbol, corner: CGFloat(look.prefs.corners) * 0.5)
-                                            .frame(width: 64, height: 64)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(p.name).font(.headline)
-                                            Text(songCount(p.tracks)).font(.subheadline).foregroundStyle(look.palette.secondary)
-                                        }
-                                        Spacer()
-                                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(look.palette.secondary)
-                                    }
-                                    .padding(.vertical, 8)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu { playlistMenu(p) }
-                                Divider().opacity(0.4)
+                    // Each connected server's playlists, listed by themselves.
+                    ForEach(services.connected) { s in
+                        if let list = services.playlists[s], !list.isEmpty {
+                            section(s.name, count: list.count, logo: s.logo, items: list.map(ShelfItem.init)) { EmptyView() }
+                        } else if services.loading.contains(s) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                header(s.name, count: nil, logo: s.logo)
+                                ProgressView().frame(maxWidth: .infinity)
                             }
                         }
                     }
@@ -68,6 +84,14 @@ struct PlaylistsTab: View {
             .navigationTitle("Playlists")
             .navigationBarTitleDisplayMode(look.prefs.bigTitles ? .large : .inline)
             .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.snappy) { look.prefs.shelf.toggle() }
+                    } label: {
+                        Image(systemName: look.prefs.shelf ? "list.bullet" : "square.grid.2x2")
+                    }
+                    .accessibilityLabel(look.prefs.shelf ? "Show as a list" : "Show as CDs")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { newName = ""; naming = true } label: { Image(systemName: "plus") }
                 }
@@ -100,23 +124,88 @@ struct PlaylistsTab: View {
         }
     }
 
+    private func header(_ title: String, count: Int?, logo: String? = nil) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            if let logo {
+                Image(logo).renderingMode(.template).resizable().scaledToFit()
+                    .frame(width: 20, height: 20)
+                    .foregroundStyle(look.palette.accent)
+            }
+            Text(title).font(.title2.weight(.bold))
+            Spacer()
+            if let count { Text("\(count)").foregroundStyle(look.palette.secondary) }
+        }
+    }
+
+    @ViewBuilder
+    private func section<E: View>(_ title: String, count: Int, logo: String? = nil, items: [ShelfItem], @ViewBuilder empty: () -> E) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header(title, count: count, logo: logo)
+            if items.isEmpty {
+                empty()
+            } else if look.prefs.shelf {
+                Bookshelf(items: items, zoom: zoom, open: { path.append($0.kind) }, menu: { menu($0) })
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(items) { item in
+                        Button { path.append(item.kind) } label: {
+                            HStack(spacing: 14) {
+                                ArtworkView(url: item.artwork, seed: item.name, symbol: item.symbol, corner: CGFloat(look.prefs.corners) * 0.5)
+                                    .frame(width: 60, height: 60)
+                                    .matchedTransitionSource(id: item.kind.zoomId, in: zoom)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name).font(.headline).lineLimit(1)
+                                    Text(item.subtitle).font(.subheadline).foregroundStyle(look.palette.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(look.palette.secondary)
+                            }
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu { menu(item) }
+                        Divider().opacity(0.4)
+                    }
+                }
+            }
+        }
+    }
+
     private var emptyShelf: some View {
         VStack(spacing: 12) {
-            Image(systemName: "opticaldisc").font(.system(size: 44)).foregroundStyle(look.palette.secondary)
+            Image(systemName: "opticaldisc").font(.system(size: 40)).foregroundStyle(look.palette.secondary)
             Text("No playlists yet").font(.headline)
-            Text("Make one with +, or save a playlist from your music server.").font(.subheadline).foregroundStyle(look.palette.secondary).multilineTextAlignment(.center)
-            Button("New Playlist") { newName = ""; naming = true }.buttonStyle(.glass)
+            Text("Make one with +, or add one from your music server.").font(.subheadline).foregroundStyle(look.palette.secondary).multilineTextAlignment(.center)
+            Button("New Playlist") { newName = ""; naming = true }.buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity)
         .padding(28)
         .panel(look)
     }
 
-    @ViewBuilder private func playlistMenu(_ p: Playlist) -> some View {
-        Button { player.play(p.tracks) } label: { Label("Play", systemImage: "play.fill") }
-        Button { player.play(p.tracks, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
-        Button { renaming = p; newName = p.name } label: { Label("Rename", systemImage: "pencil") }
-        Button(role: .destructive) { deleting = p } label: { Label("Delete", systemImage: "trash") }
+    @ViewBuilder private func menu(_ item: ShelfItem) -> some View {
+        switch item.kind {
+        case .playlist(let id):
+            if let p = library.playlist(id) {
+                Button { player.play(p.tracks) } label: { Label("Play", systemImage: "play.fill") }
+                Button { player.play(p.tracks, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
+                Button { renaming = p; newName = p.name } label: { Label("Rename", systemImage: "pencil") }
+                Button(role: .destructive) { deleting = p } label: { Label("Delete", systemImage: "trash") }
+            }
+        case .server(let c):
+            Button { Task { if let t = try? await services.tracks(of: c) { player.play(t) } } } label: { Label("Play", systemImage: "play.fill") }
+            Button { Task { if let t = try? await services.tracks(of: c) { player.play(t, shuffled: true) } } } label: { Label("Shuffle", systemImage: "shuffle") }
+            Button {
+                Task {
+                    if let t = try? await services.tracks(of: c) {
+                        library.create(c.name, tracks: t, origin: c.server == .navidrome ? .navidrome(id: c.id) : .jellyfin(id: c.id))
+                    }
+                }
+            } label: { Label("Add to My Playlists", systemImage: "plus.square.on.square") }
+        default:
+            EmptyView()
+        }
     }
 }
 
@@ -146,7 +235,7 @@ private struct PinnedTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScale())
-        .panel(look, interactive: true)
+        .panel(look)
     }
 }
 
@@ -159,68 +248,61 @@ struct PressScale: ButtonStyle {
     }
 }
 
-/// Playlists as CD cases standing on shelves, big enough to hit easily.
-private struct Bookshelf: View {
+/// CDs standing on shelves, big enough to hit easily.
+private struct Bookshelf<M: View>: View {
     @Environment(Look.self) private var look
-    var playlists: [Playlist]
-    var zoom: Namespace.ID
-    var open: (Playlist) -> Void
-    var rename: (Playlist) -> Void
-    var delete: (Playlist) -> Void
     @Environment(Player.self) private var player
-    /// The CD being opened: its disc slides out and spins, then the page opens.
+    var items: [ShelfItem]
+    var zoom: Namespace.ID
+    var open: (ShelfItem) -> Void
+    @ViewBuilder var menu: (ShelfItem) -> M
+    /// The CD being opened: its disc glides out, then the page opens.
     @State private var opening: String?
 
-    private func tap(_ p: Playlist) {
+    private func tap(_ item: ShelfItem) {
         guard opening == nil else { return }
-        withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) { opening = p.id }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { open(p) }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { opening = nil }
-        }
+        withAnimation(.easeOut(duration: 0.22)) { opening = item.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { open(item) }
+        // Back in place (unseen, behind the page) for when you come back.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { opening = nil }
     }
 
     /// The playlist that's playing (its disc stays out, turning).
-    private func isPlaying(_ p: Playlist) -> Bool {
-        guard player.playing, let c = player.current else { return false }
-        return p.tracks.contains { $0.id == c.id }
+    private func isPlaying(_ item: ShelfItem) -> Bool {
+        guard player.playing, let c = player.current, let t = item.tracks else { return false }
+        return t.contains { $0.id == c.id }
     }
 
     var body: some View {
         let cols = look.prefs.shelfSize.columns
-        let rows = stride(from: 0, to: playlists.count, by: cols).map { Array(playlists[$0..<min($0 + cols, playlists.count)]) }
+        let rows = stride(from: 0, to: items.count, by: cols).map { Array(items[$0..<min($0 + cols, items.count)]) }
         VStack(spacing: 30) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 VStack(spacing: 0) {
                     HStack(alignment: .bottom, spacing: 22) {
-                        ForEach(row) { p in
-                            Button { tap(p) } label: {
-                                CDCase(playlist: p, pulled: opening == p.id, spinning: isPlaying(p), zoom: zoom)
+                        ForEach(row) { item in
+                            Button { tap(item) } label: {
+                                CDCase(item: item, pulled: opening == item.id, spinning: isPlaying(item), zoom: zoom)
                             }
-                                .buttonStyle(PressScale())
-                                .tapFeedback(look, trigger: opening == p.id)
-                                .contextMenu {
-                                    Button { player.play(p.tracks) } label: { Label("Play", systemImage: "play.fill") }
-                                    Button { player.play(p.tracks, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
-                                    Button { rename(p) } label: { Label("Rename", systemImage: "pencil") }
-                                    Button(role: .destructive) { delete(p) } label: { Label("Delete", systemImage: "trash") }
-                                }
+                            .buttonStyle(PressScale())
+                            .contextMenu { menu(item) }
+                            .tapFeedback(look, trigger: opening == item.id)
                         }
                         if row.count < cols {
                             ForEach(0..<(cols - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
                         }
                     }
                     .padding(.horizontal, 10)
-                    // The shelf board they stand on.
                     ShelfBoard()
                     HStack(alignment: .top, spacing: 22) {
-                        ForEach(row) { p in
+                        ForEach(row) { item in
                             VStack(spacing: 2) {
-                                Text(p.name).font(.headline).lineLimit(1)
-                                Text(songCount(p.tracks)).font(.caption).foregroundStyle(look.palette.secondary).lineLimit(1)
+                                Text(item.name).font(.headline).lineLimit(1)
+                                Text(item.subtitle).font(.caption).foregroundStyle(look.palette.secondary).lineLimit(1)
                             }
                             .frame(maxWidth: .infinity)
-                            .onTapGesture { tap(p) }
+                            .contentShape(Rectangle())
+                            .onTapGesture { tap(item) }
                         }
                         if row.count < cols {
                             ForEach(0..<(cols - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
@@ -235,11 +317,11 @@ private struct Bookshelf: View {
 }
 
 /// A playlist as a CD: its cover, with the disc peeking out behind it.
-/// Opening it slides the disc further out with a spin; the playing one's
-/// disc stays a little out, turning.
+/// Opening it glides the disc out; the playing one's disc stays a little
+/// out, turning.
 struct CDCase: View {
     @Environment(Look.self) private var look
-    var playlist: Playlist
+    var item: ShelfItem
     var pulled = false
     var spinning = false
     var zoom: Namespace.ID? = nil
@@ -249,16 +331,16 @@ struct CDCase: View {
             let side = g.size.height
             let disc = side * 0.92
             let rest = g.size.width - disc
-            let out = pulled ? side * 0.42 : (spinning ? side * 0.12 : 0)
+            let out = pulled ? side * 0.3 : (spinning ? side * 0.12 : 0)
             ZStack(alignment: .leading) {
                 TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { tl in
                     let turn = spinning ? tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 8) / 8 * 360 : 0
-                    Disc(playlist: playlist)
-                        .rotationEffect(.degrees(turn + (pulled ? 220 : 0)))
+                    Disc(item: item)
+                        .rotationEffect(.degrees(turn + (pulled ? 70 : 0)))
                 }
                 .frame(width: disc, height: disc)
                 .offset(x: rest + out)
-                .shadow(color: .black.opacity(0.25), radius: 4, x: 2, y: 2)
+                .shadow(color: .black.opacity(0.22), radius: 4, x: 2, y: 2)
                 cover(side)
             }
         }
@@ -267,12 +349,11 @@ struct CDCase: View {
     }
 
     @ViewBuilder private func cover(_ side: CGFloat) -> some View {
-        let art = ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: max(3, CGFloat(look.prefs.corners) * 0.35))
+        let art = ArtworkView(url: item.artwork, seed: item.name, symbol: item.symbol, corner: max(3, CGFloat(look.prefs.corners) * 0.35))
             .frame(width: side, height: side)
-            .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
-            .rotation3DEffect(.degrees(pulled ? -8 : 0), axis: (x: 0, y: 1, z: 0), anchor: .leading)
+            .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 6)
         if let zoom {
-            art.matchedTransitionSource(id: ListKind.playlist(playlist.id).zoomId, in: zoom)
+            art.matchedTransitionSource(id: item.kind.zoomId, in: zoom)
         } else {
             art
         }
@@ -282,7 +363,7 @@ struct CDCase: View {
 /// A CD: brushed silver, the cover printed on its label, a hole.
 private struct Disc: View {
     @Environment(Look.self) private var look
-    var playlist: Playlist
+    var item: ShelfItem
 
     var body: some View {
         GeometryReader { g in
@@ -292,17 +373,14 @@ private struct Disc: View {
                     Color(white: 0.80), Color(white: 0.94), Color(white: 0.78), Color(white: 0.90),
                     Color(white: 0.76), Color(white: 0.95), Color(white: 0.80),
                 ], center: .center))
-                // Fine grooves.
                 ForEach(1..<6) { k in
                     Circle().strokeBorder(.black.opacity(0.045), lineWidth: 0.5)
                         .frame(width: d * (0.66 + 0.06 * CGFloat(k)), height: d * (0.66 + 0.06 * CGFloat(k)))
                 }
-                // The label: the playlist's cover, printed on the disc.
-                ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: 0)
+                ArtworkView(url: item.artwork, seed: item.name, symbol: item.symbol, corner: 0)
                     .frame(width: d * 0.6, height: d * 0.6)
                     .clipShape(Circle())
                 Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1).frame(width: d * 0.6, height: d * 0.6)
-                // The clear ring and the hole.
                 Circle().fill(Color(white: 0.88, opacity: 0.9)).frame(width: d * 0.2, height: d * 0.2)
                 Circle().fill(look.palette.background).frame(width: d * 0.09, height: d * 0.09)
                 Circle().strokeBorder(.black.opacity(0.14), lineWidth: 0.5)

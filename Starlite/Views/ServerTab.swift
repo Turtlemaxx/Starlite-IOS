@@ -48,6 +48,9 @@ struct ServerTab: View {
                 if !search.isEmpty {
                     searchResults
                 } else {
+                    if !library.recent.isEmpty {
+                        RecentlyPlayed()
+                    }
                     if let e = services.errors[s] {
                         Label(e, systemImage: "exclamationmark.triangle")
                             .font(.subheadline)
@@ -173,7 +176,7 @@ private struct ConnectChoice: View {
                     ForEach(ServerKind.allCases) { s in
                         NavigationLink(value: s) {
                             HStack(spacing: 14) {
-                                SymbolBadge(symbol: s.symbol, color: s == .navidrome ? .blue : .purple)
+                                RowIcon(logo: s.logo)
                                 Text(s.name).font(.headline)
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(look.palette.secondary)
@@ -213,7 +216,7 @@ struct ConnectView: View {
                 } footer: {
                     Text("Starlite keeps a sign-in token in the Keychain, not your password.")
                 }
-                .listRowBackground(Rectangle().fill(.clear).panel(look, radius: 0))
+                .groupBackground(look)
             } else {
                 Section {
                     TextField(server == .navidrome ? "Address, e.g. 192.168.1.10:4533" : "Address, e.g. 192.168.1.10:8096", text: $url)
@@ -262,6 +265,46 @@ struct ConnectView: View {
             dismiss()
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+}
+
+/// What you played last: small tiles in two rows, the cover on the left.
+private struct RecentlyPlayed: View {
+    @Environment(Look.self) private var look
+    @Environment(Library.self) private var library
+    @Environment(Player.self) private var player
+
+    var body: some View {
+        let recent = library.recent
+        VStack(alignment: .leading, spacing: 12) {
+            SectionTitle(title: "Recently Played")
+            ScrollView(.horizontal) {
+                LazyHGrid(rows: [GridItem(.fixed(60), spacing: 10), GridItem(.fixed(60), spacing: 10)], spacing: 10) {
+                    ForEach(Array(recent.enumerated()), id: \.element.id) { k, t in
+                        Button { player.play(recent, at: k) } label: {
+                            HStack(spacing: 10) {
+                                ArtworkView(url: t.artwork, seed: t.album ?? t.title, corner: 6)
+                                    .frame(width: 44, height: 44)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(t.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                                    Text(t.artist).font(.caption).foregroundStyle(look.palette.secondary).lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8)
+                            .frame(width: 236, height: 60)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PressScale())
+                        .panel(look, radius: CGFloat(look.prefs.corners) * 0.6 + 4)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
         }
     }
 }

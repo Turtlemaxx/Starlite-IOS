@@ -29,6 +29,7 @@ enum Demo {
     static func fill(library: Library, services: Services, player: Player) {
         let all = tracks(for: "a")
         library.liked = Array(all.prefix(7))
+        library.recent = Array(tracks(for: "recent").prefix(8))
         library.downloaded = Array(all.suffix(5)).map { var t = $0; t.id = "file:\(t.title)"; t.source = .file(name: t.title + ".mp3"); return t }
         library.playlists = [
             Playlist(id: "p1", name: "Late Night Drive", tracks: tracks(for: "drive"), symbol: "moon.stars"),

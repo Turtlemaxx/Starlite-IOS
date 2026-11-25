@@ -12,6 +12,8 @@ final class Library {
     var downloaded: [Track] = []
     /// Downloaded server songs: file name → what it is.
     var downloadInfo: [String: Track] = [:] { didSet { save() } }
+    /// What you played last, newest first.
+    var recent: [Track] = [] { didSet { save() } }
     /// Server songs being downloaded right now (server key → 0…1).
     var downloading: [String: Double] = [:]
 
@@ -19,6 +21,7 @@ final class Library {
         var playlists: [Playlist]
         var liked: [Track]
         var downloadInfo: [String: Track]
+        var recent: [Track]?
     }
     private var loaded = false
 
@@ -27,13 +30,14 @@ final class Library {
             playlists = s.playlists
             liked = s.liked
             downloadInfo = s.downloadInfo
+            recent = s.recent ?? []
         }
         loaded = true
     }
 
     private func save() {
         guard loaded else { return }
-        Storage.save(Saved(playlists: playlists, liked: liked, downloadInfo: downloadInfo), "library.json")
+        Storage.save(Saved(playlists: playlists, liked: liked, downloadInfo: downloadInfo, recent: recent), "library.json")
     }
 
     // MARK: Playlists
@@ -73,6 +77,30 @@ final class Library {
 
     func playlist(_ id: String) -> Playlist? {
         playlists.first { $0.id == id }
+    }
+
+    /// Every song you have (playlists, liked, downloaded), each once.
+    var allTracks: [Track] {
+        var seen = Set<String>()
+        return (liked + downloaded + playlists.flatMap(\.tracks)).filter { seen.insert($0.id).inserted }
+    }
+
+    /// Songs by an artist from what you have.
+    func songs(by artist: String) -> [Track] {
+        let a = artist.lowercased()
+        return allTracks.filter {
+            let b = $0.artist.lowercased()
+            return b == a || b.contains(a) || a.contains(b)
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// A song started playing: first in Recently Played.
+    func played(_ t: Track) {
+        var r = recent
+        r.removeAll { $0.id == t.id }
+        r.insert(t, at: 0)
+        recent = Array(r.prefix(24))
     }
 
     // MARK: Liked

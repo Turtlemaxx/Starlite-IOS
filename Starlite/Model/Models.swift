@@ -71,6 +71,8 @@ enum ServerKind: String, Codable, Hashable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var name: String { self == .navidrome ? "Navidrome" : "Jellyfin" }
     var symbol: String { self == .navidrome ? "music.note.house" : "server.rack" }
+    /// The service's own logo (an image in the asset catalog).
+    var logo: String { self == .navidrome ? "LogoNavidrome" : "LogoJellyfin" }
 }
 
 /// "3:07"

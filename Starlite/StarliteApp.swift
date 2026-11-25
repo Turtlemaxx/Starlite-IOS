@@ -6,6 +6,8 @@ struct StarliteApp: App {
     @State private var library = Library()
     @State private var services = Services()
     @State private var player = Player()
+    @State private var sound = Sound()
+    @State private var lastfm = LastFM()
 
     init() {
         // Covers come over the network a lot: keep plenty of them.
@@ -19,8 +21,10 @@ struct StarliteApp: App {
                 .environment(library)
                 .environment(services)
                 .environment(player)
+                .environment(sound)
+                .environment(lastfm)
                 .onAppear {
-                    player.configure(services: services, library: library, look: look)
+                    player.configure(services: services, library: library, look: look, sound: sound, lastfm: lastfm)
                     if Storage.demo {
                         Demo.fill(library: library, services: services, player: player)
                     }
@@ -34,12 +38,12 @@ struct StarliteApp: App {
 }
 
 enum AppTab: Hashable {
-    case server, playlists, settings
+    case server, playlists, settings, search
 }
 
 /// The screens the screenshot run opens (launch argument -StarliteScreen).
 enum DemoScreen: String {
-    case playlists, playlist, nowplaying, server, settings, appearance, layout, light, bubbles
+    case playlists, playlist, nowplaying, lyrics, server, settings, appearance, layout, sound, search, light, bubbles, list
     static var current: DemoScreen? {
         guard Storage.demo, let s = UserDefaults.standard.string(forKey: "StarliteScreen") else { return nil }
         return DemoScreen(rawValue: s)
@@ -65,6 +69,10 @@ struct RootView: View {
             Tab("Settings", systemImage: "gearshape", value: AppTab.settings) {
                 SettingsTab()
             }
+            // The search bubble, apart at the right of the tab bar.
+            Tab(value: AppTab.search, role: .search) {
+                SearchTab()
+            }
         }
         .tabBarMinimizeBehavior(look.prefs.minimizeTabBar ? .onScrollDown : .never)
         .tabViewBottomAccessory {
@@ -85,8 +93,10 @@ struct RootView: View {
         .onAppear {
             switch DemoScreen.current {
             case .server: tab = .server
-            case .settings, .appearance, .layout: tab = .settings
-            case .nowplaying: nowPlaying = true
+            case .settings, .appearance, .layout, .sound: tab = .settings
+            case .nowplaying, .lyrics: nowPlaying = true
+            case .search: tab = .search
+            case .list: look.prefs.shelf = false
             case .light: look.prefs.theme = .light
             case .bubbles: look.prefs.theme = .bubbles
             default: break

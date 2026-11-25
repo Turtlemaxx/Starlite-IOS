@@ -5,8 +5,9 @@ func stableSeed(_ s: String) -> Int {
     s.unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) } & 0x7fff_ffff
 }
 
-/// A cover: the picture, or (without one) a calm gradient with a symbol.
+/// A cover: the picture, or (without one) a symbol on the theme's colours.
 struct ArtworkView: View {
+    @Environment(Look.self) private var look
     var url: URL?
     var seed: String
     var symbol: String = "music.note"
@@ -15,7 +16,7 @@ struct ArtworkView: View {
     var body: some View {
         GeometryReader { g in
             ZStack {
-                generated(g.size)
+                placeholder(g.size)
                 if let url {
                     AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.2))) { phase in
                         if let img = phase.image {
@@ -30,13 +31,15 @@ struct ArtworkView: View {
         .aspectRatio(1, contentMode: .fit)
     }
 
-    private func generated(_ size: CGSize) -> some View {
-        let h = Double(stableSeed(seed) % 360) / 360
+    private func placeholder(_ size: CGSize) -> some View {
+        let p = look.palette
         return ZStack {
-            LinearGradient(colors: [Color(hue: h, saturation: 0.55, brightness: 0.75), Color(hue: (h + 0.12).truncatingRemainder(dividingBy: 1), saturation: 0.65, brightness: 0.38)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            p.panel
+            p.accent.opacity(p.dark ? 0.10 : 0.08)
             Image(systemName: symbol)
-                .font(.system(size: max(10, size.width * 0.34), weight: .medium))
-                .foregroundStyle(.white.opacity(0.85))
+                .font(.system(size: max(10, size.width * 0.32)))
+                .fontWeight(look.prefs.iconWeight.weight)
+                .foregroundStyle(p.accent.opacity(0.85))
         }
     }
 }
@@ -77,16 +80,33 @@ private struct Themed: ViewModifier {
     }
 }
 
-/// A row in Settings and lists: a symbol in a small rounded square.
-struct SymbolBadge: View {
-    var symbol: String
-    var color: Color
+/// The icon at the start of a Settings row: a plain symbol (or a logo).
+struct RowIcon: View {
+    @Environment(Look.self) private var look
+    var symbol: String? = nil
+    var logo: String? = nil
     var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 29, height: 29)
-            .background(color.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        Group {
+            if let logo {
+                Image(logo).renderingMode(.template).resizable().scaledToFit().frame(width: 20, height: 20)
+            } else if let symbol {
+                Image(systemName: symbol).font(.system(size: 18)).fontWeight(look.prefs.iconWeight.weight)
+            }
+        }
+        .foregroundStyle(look.palette.accent)
+        .frame(width: 28)
+    }
+}
+
+extension Look {
+    /// Behind a row of a grouped list: solid, or a material for the glass
+    /// styles (glass on single rows lost its edge at the group's corners).
+    @ViewBuilder var rowFill: some View {
+        switch prefs.style {
+        case .solid: palette.panel
+        case .frosted: Rectangle().fill(.ultraThinMaterial)
+        case .liquid: Rectangle().fill(.regularMaterial).opacity(0.85)
+        }
     }
 }
 

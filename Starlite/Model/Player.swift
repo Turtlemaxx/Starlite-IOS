@@ -30,20 +30,32 @@ final class Player {
     @ObservationIgnored private weak var services: Services?
     @ObservationIgnored private weak var library: Library?
     @ObservationIgnored private weak var look: Look?
+    @ObservationIgnored private weak var sound: Sound?
+    @ObservationIgnored private weak var lastfm: LastFM?
+    // Last.fm: how long this song has really been listened to.
+    @ObservationIgnored private var listened: Double = 0
+    @ObservationIgnored private var lastTick: Double = 0
+    @ObservationIgnored private var scrobbled = false
+    @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var sessionReady = false
     @ObservationIgnored private var artTask: Task<Void, Never>?
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
     var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
 
-    func configure(services: Services, library: Library, look: Look) {
+    func configure(services: Services, library: Library, look: Look, sound: Sound, lastfm: LastFM) {
         self.services = services
         self.library = library
         self.look = look
+        self.sound = sound
+        self.lastfm = lastfm
+        sound.onChange = { [weak self] p in self?.applySound(p) }
+        applySound(sound.prefs)
         player.automaticallyWaitsToMinimizeStalling = true
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] t in
             guard let self else { return }
             self.position = CMTimeGetSeconds(t)
+            self.countListening()
             if let d = self.player.currentItem?.duration, d.isNumeric {
                 let s = CMTimeGetSeconds(d)
                 if s.isFinite, s > 0, abs(s - self.duration) > 0.5 { self.duration = s }
@@ -208,6 +220,15 @@ final class Player {
         }
         activateSession()
         let item = AVPlayerItem(url: url)
+        item.audioTimePitchAlgorithm = (sound?.prefs.keepPitch ?? true) ? .spectral : .varispeed
+        // The equalizer and effects go into the song as it plays.
+        Task { await AudioFX.attach(to: item) }
+        listened = 0
+        lastTick = 0
+        scrobbled = false
+        startedAt = Date()
+        lastfm?.nowPlaying(t)
+        library?.played(t)
         statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard item.status == .failed else { return }
             DispatchQueue.main.async {
@@ -219,6 +240,26 @@ final class Player {
         if playing { player.play() }
         updateNowPlaying()
         loadArtwork(t)
+    }
+
+    /// Speed (and whether the pitch stays) for what plays now and next.
+    private func applySound(_ p: SoundPrefs) {
+        player.defaultRate = Float(p.speed)
+        if playing { player.rate = Float(p.speed) }
+        player.currentItem?.audioTimePitchAlgorithm = p.keepPitch ? .spectral : .varispeed
+    }
+
+    /// Scrobbles once a song has really been heard: half of it, or 4 minutes.
+    private func countListening() {
+        let d = position - lastTick
+        lastTick = position
+        guard playing, d > 0, d < 2, let t = current else { return }
+        listened += d
+        let length = duration > 0 ? duration : t.duration
+        if !scrobbled, length > 30, listened >= min(240, length / 2) {
+            scrobbled = true
+            lastfm?.scrobble(t, startedAt: startedAt)
+        }
     }
 
     private func loadArtwork(_ t: Track) {

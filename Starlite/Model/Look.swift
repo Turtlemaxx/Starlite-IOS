@@ -124,7 +124,7 @@ enum StreamQuality: String, Codable, CaseIterable, Identifiable {
 /// Everything you can change about how Starlite looks and behaves.
 struct LookPrefs: Codable, Hashable {
     var theme: ThemeKind = .dark
-    var style: PanelStyle = .liquid
+    var style: PanelStyle = .solid
     var accentFrom: AccentFrom = .theme
     var accent = RGBA(0.588, 0.510, 1.0)
     var coverBackground = false
@@ -151,6 +151,7 @@ struct LookPrefs: Codable, Hashable {
     var download: StreamQuality = .original
     var haptics = true
     var pausedArtworkShrinks = true
+    var lyricsOnline = true
 
     /// Saved looks keep the look, not playback settings.
     func lookOnly(from other: LookPrefs) -> LookPrefs {
