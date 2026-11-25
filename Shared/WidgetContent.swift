@@ -153,9 +153,9 @@ struct WidgetContent: View {
         }
     }
 
-    private var art: Image {
-        if let artwork { return Image(uiImage: artwork).resizable().widgetAccentedRenderingMode(.fullColor) }
-        return Image(systemName: "music.note").resizable()
+    private var art: AnyView {
+        if let artwork { return AnyView(Image(uiImage: artwork).resizable().widgetAccentedRenderingMode(.fullColor)) }
+        return AnyView(Image(systemName: "music.note").resizable())
     }
 
     private func cover(side: CGFloat) -> some View {
