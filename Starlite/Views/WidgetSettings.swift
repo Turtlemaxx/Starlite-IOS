@@ -159,6 +159,7 @@ struct WidgetSettings: View {
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: prefs) { _, p in
             AppGroup.write(p, "widget-prefs.json")
+            WidgetServer.shared.update(prefs: p)
             AppGroup.reloadWidgets()
         }
     }

@@ -45,6 +45,16 @@ struct PlaylistsTab: View {
     @State private var renaming: Playlist?
     @State private var deleting: Playlist?
     @Namespace private var zoom
+    /// A disc that popped out of its CD, on its way to becoming the page.
+    @State private var flight: Flight?
+
+    struct Flight: Equatable {
+        var item: ShelfItem
+        /// Where the disc was on the screen when it left the shelf.
+        var from: CGRect
+        /// 0 at the shelf, 1 popped out big in the middle.
+        var popped = false
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -97,15 +107,17 @@ struct PlaylistsTab: View {
                 }
             }
             .navigationDestination(for: ListKind.self) { kind in
-                // The page grows out of the CD (or tile) that was tapped
-                // (or just appears, with animations off).
+                // The page grows out of the disc that popped out (going back,
+                // it shrinks into the CD again), or just appears with
+                // animations off.
                 if look.prefs.animations {
                     CollectionView(collection: kind)
-                        .navigationTransition(.zoom(sourceID: kind.zoomId, in: zoom))
+                        .navigationTransition(.zoom(sourceID: flight?.item.kind == kind ? "flight" : kind.zoomId, in: zoom))
                 } else {
                     CollectionView(collection: kind)
                 }
             }
+            .overlay { flightView }
             .alert("New Playlist", isPresented: $naming) {
                 TextField("Name", text: $newName)
                 Button("Create") { library.create(newName) }
@@ -126,6 +138,47 @@ struct PlaylistsTab: View {
                     path.append(ListKind.playlist(p.id))
                 }
             }
+        }
+    }
+
+    /// The disc pops out of the shelf, grows big in the middle of the
+    /// screen, turning, and the playlist opens out of it.
+    private func fly(_ item: ShelfItem, from disc: CGRect?) {
+        guard look.prefs.animations, let disc else {
+            push(item.kind)
+            return
+        }
+        let k = 1 / max(0.25, look.prefs.animationSpeed)
+        flight = Flight(item: item, from: disc)
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.5 * k, dampingFraction: 0.62)) { flight?.popped = true }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42 * k) { path.append(item.kind) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42 * k + 0.75) {
+            flight = nil
+        }
+    }
+
+    /// The flying disc, over everything.
+    @ViewBuilder private var flightView: some View {
+        if let f = flight {
+            GeometryReader { g in
+                let side = min(g.size.width * 0.66, 270)
+                let target = CGRect(x: g.size.width / 2 - side / 2, y: g.size.height * 0.2, width: side, height: side)
+                let o = g.frame(in: .global).origin
+                let rect = f.popped ? target : f.from.offsetBy(dx: -o.x, dy: -o.y)
+                ZStack {
+                    Color.black.opacity(f.popped ? (look.palette.dark ? 0.35 : 0.15) : 0)
+                    Disc(item: f.item)
+                        .frame(width: rect.width, height: rect.height)
+                        .rotationEffect(.degrees(f.popped ? 300 : 0))
+                        .shadow(color: .black.opacity(0.45), radius: f.popped ? 30 : 4, y: f.popped ? 18 : 2)
+                        .matchedTransitionSource(id: "flight", in: zoom)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
         }
     }
 
@@ -160,7 +213,7 @@ struct PlaylistsTab: View {
             if items.isEmpty {
                 empty()
             } else if look.prefs.shelf {
-                Bookshelf(items: items, zoom: zoom, open: { push($0.kind) }, menu: { menu($0) })
+                Bookshelf(items: items, zoom: zoom, flying: flight?.item.id, open: { item, disc in fly(item, from: disc) }, menu: { menu($0) })
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(items) { item in
@@ -290,31 +343,34 @@ private struct Bookshelf<M: View>: View {
     @Environment(Player.self) private var player
     var items: [ShelfItem]
     var zoom: Namespace.ID
-    var open: (ShelfItem) -> Void
+    /// The disc that's flying (it's hidden here meanwhile).
+    var flying: String?
+    /// Opens a playlist; the rect is where its disc is on the screen.
+    var open: (ShelfItem, CGRect?) -> Void
     @ViewBuilder var menu: (ShelfItem) -> M
-    /// The CD being opened, and how far: 1 the disc pulled out, 2 it slid
-    /// down (into the page that opens).
+    /// The CD being opened: its disc slides out of the case first.
     @State private var opening: String?
-    @State private var stage = 0
+    /// Where each disc is on the screen once slid out (kept without
+    /// redrawing the shelf as it scrolls).
+    @State private var frames = DiscFrames()
+
+    final class DiscFrames {
+        var rects: [String: CGRect] = [:]
+    }
+
+    private func discFrame(_ item: ShelfItem) -> CGRect? { frames.rects[item.id] }
 
     private func tap(_ item: ShelfItem) {
         guard opening == nil else { return }
         guard look.prefs.animations else {
-            open(item)
+            open(item, nil)
             return
         }
         let k = 1 / max(0.25, look.prefs.animationSpeed)
-        opening = item.id
-        withAnimation(.easeOut(duration: 0.2 * k)) { stage = 1 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * k) {
-            withAnimation(.easeIn(duration: 0.22 * k)) { stage = 2 }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 * k) { open(item) }
-        // Back in place (unseen, behind the page) for when you come back.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 * k + 0.7) {
-            opening = nil
-            stage = 0
-        }
+        withAnimation(.easeOut(duration: 0.22 * k)) { opening = item.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22 * k) { open(item, discFrame(item)) }
+        // Back in its case (unseen, behind the page) for when you come back.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22 * k + 1.2) { opening = nil }
     }
 
     /// The playlist that's playing (its disc stays out, turning).
@@ -332,11 +388,12 @@ private struct Bookshelf<M: View>: View {
                     HStack(alignment: .bottom, spacing: 22) {
                         ForEach(row) { item in
                             Button { tap(item) } label: {
-                                CDCase(item: item, stage: opening == item.id ? stage : 0, spinning: isPlaying(item), zoom: zoom)
+                                CDCase(item: item, stage: flying == item.id ? 2 : (opening == item.id ? 1 : 0), spinning: isPlaying(item), zoom: zoom)
+                                    .environment(\.discFrame, { [frames] in frames.rects[item.id] = $0 })
                             }
                             .buttonStyle(PressScale())
                             .contextMenu { menu(item) }
-                            .tapFeedback(look, trigger: opening == item.id && stage == 1)
+                            .tapFeedback(look, trigger: opening == item.id)
                         }
                         if row.count < cols {
                             ForEach(0..<(cols - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
@@ -369,13 +426,19 @@ private struct Bookshelf<M: View>: View {
 /// A playlist as a CD: its cover, with the disc peeking out behind it.
 /// Opening it glides the disc out; the playing one's disc stays a little
 /// out, turning.
+extension EnvironmentValues {
+    /// Tells the shelf where a CD's disc is on the screen.
+    @Entry var discFrame: ((CGRect) -> Void)? = nil
+}
+
 struct CDCase: View {
     @Environment(Look.self) private var look
     var item: ShelfItem
-    /// 0 in place, 1 pulled out, 2 slid down.
+    /// 0 in its case, 1 slid out, 2 popped out (the flying disc shows instead).
     var stage = 0
     var spinning = false
     var zoom: Namespace.ID? = nil
+    @Environment(\.discFrame) private var report
 
     var body: some View {
         GeometryReader { g in
@@ -383,19 +446,21 @@ struct CDCase: View {
             let disc = side * 0.92
             let rest = g.size.width - disc
             let out = stage >= 1 ? side * 0.5 : (spinning ? side * 0.12 : 0)
-            let down = stage == 2 ? side * 0.55 : 0
             ZStack(alignment: .leading) {
                 TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { tl in
                     let turn = spinning ? tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 8) / 8 * 360 : 0
                     Disc(item: item)
-                        .rotationEffect(.degrees(turn + Double(stage) * 45))
+                        .rotationEffect(.degrees(turn + (stage >= 1 ? 40 : 0)))
                 }
                 .frame(width: disc, height: disc)
-                .offset(x: rest + out, y: down)
-                .scaleEffect(stage == 2 ? 0.9 : 1)
+                .offset(x: rest + out)
                 .opacity(stage == 2 ? 0 : 1)
                 .shadow(color: .black.opacity(0.22), radius: 4, x: 2, y: 2)
                 cover(side)
+            }
+            // Where the disc is once slid out (it pops out of there).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { f in
+                report?(CGRect(x: f.minX + rest + side * 0.5, y: f.minY + (side - disc) / 2, width: disc, height: disc))
             }
         }
         .aspectRatio(1.22, contentMode: .fit)

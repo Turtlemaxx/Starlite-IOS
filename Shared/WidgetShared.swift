@@ -191,7 +191,15 @@ enum CommandBridge {
     nonisolated(unsafe) static var handler: ((PlayerCommand) -> Void)?
 
     static func send(_ c: PlayerCommand) async {
-        await MainActor.run { handler?(c) }
+        // Running inside the app: straight to the player.
+        if handler != nil {
+            await MainActor.run { handler?(c) }
+            return
+        }
+        // Running in the widget: ask the app, or signal it and give it a moment.
+        if await WidgetLink.command(c) { return }
+        WidgetLink.post(c)
+        try? await Task.sleep(for: .milliseconds(400))
     }
 }
 

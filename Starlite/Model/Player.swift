@@ -44,6 +44,7 @@ final class Player {
     @ObservationIgnored private var artTask: Task<Void, Never>?
     /// The song whose cover the widget has.
     @ObservationIgnored private var widgetArtFor: String?
+    @ObservationIgnored private var widgetArt: Data?
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
 
@@ -188,12 +189,16 @@ final class Player {
             if let img = artworkImage, let data = img.squareThumbnail(360).jpegData(compressionQuality: 0.85) {
                 try? data.write(to: AppGroup.artworkURL, options: .atomic)
                 widgetArtFor = current?.id
+                widgetArt = data
             } else {
                 try? FileManager.default.removeItem(at: AppGroup.artworkURL)
                 widgetArtFor = artworkImage == nil ? nil : current?.id
+                widgetArt = nil
             }
         }
         AppGroup.write(s, "widget-now.json")
+        // Without an App Group (sideloaded), the widget asks the app itself.
+        WidgetServer.shared.update(now: s, art: current == nil ? nil : widgetArt)
         AppGroup.reloadWidgets()
     }
 

@@ -14,6 +14,9 @@ struct StarliteApp: App {
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         // The widget's buttons.
         CommandBridge.handler = { Player.shared.handle($0) }
+        // The widget reaches the app this way when there's no App Group.
+        WidgetLink.listen()
+        WidgetServer.shared.start()
     }
 
     var body: some Scene {
@@ -95,7 +98,10 @@ struct RootView: View {
         }
         .onChange(of: phase) { _, p in
             // Songs put in through the Files app show up when you come back.
-            if p == .active { Task { await library.scan() } }
+            if p == .active {
+                Task { await library.scan() }
+                WidgetServer.shared.start()
+            }
         }
         .onAppear {
             switch DemoScreen.current {
