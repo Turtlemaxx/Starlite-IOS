@@ -56,6 +56,7 @@ struct SettingsTab: View {
                 .listRowBackground(rowBackground)
             }
             .themed(look)
+        .tint(look.controlTint)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(look.prefs.bigTitles ? .large : .inline)
             .navigationDestination(for: Page.self) { p in
@@ -220,6 +221,7 @@ struct AppearanceSettings: View {
             .groupBackground(look)
         }
         .themed(look)
+        .tint(look.controlTint)
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -371,6 +373,7 @@ struct LayoutSettings: View {
             .groupBackground(look)
         }
         .themed(look)
+        .tint(look.controlTint)
         .navigationTitle("Layout")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -399,6 +402,7 @@ struct PlaybackSettings: View {
             .groupBackground(look)
         }
         .themed(look)
+        .tint(look.controlTint)
         .navigationTitle("Playback")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -440,6 +444,7 @@ struct GeneralSettings: View {
             .groupBackground(look)
         }
         .themed(look)
+        .tint(look.controlTint)
         .navigationTitle("General")
         .navigationBarTitleDisplayMode(.inline)
         .task { used = library.usedBytes() }

@@ -226,6 +226,13 @@ final class Look {
         return pal
     }
 
+    /// Switches and sliders: the accent, unless it's nearly white or black
+    /// (a white switch can't be told apart from an off one): then green.
+    var controlTint: Color {
+        let a = RGBA(palette.accent)
+        return a.luminance > 0.82 || a.luminance < 0.15 ? Color(red: 0.2, green: 0.78, blue: 0.35) : palette.accent
+    }
+
     /// Text and icons on top of the accent (a filled Play button).
     var onAccent: Color {
         let a = RGBA(palette.accent)
