@@ -48,6 +48,7 @@ enum Demo {
             ServerCollection(id: "a\($0.offset)", name: $0.element.0, subtitle: $0.element.1, artwork: nil, kind: .album, server: .navidrome)
         }
         player.show(library.playlists[0].tracks, at: 2, position: 74)
+        if DemoScreen.current == .empty { library.playlists = [] }
         // On the shelf, the playing playlist's disc is out and turning.
         if DemoScreen.current == .playlists { player.demoPlaying() }
     }

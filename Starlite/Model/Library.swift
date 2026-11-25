@@ -115,6 +115,7 @@ final class Library {
         } else {
             liked.insert(t, at: 0)
         }
+        NotificationCenter.default.post(name: .starliteLikesChanged, object: nil)
     }
 
     // MARK: On this iPhone

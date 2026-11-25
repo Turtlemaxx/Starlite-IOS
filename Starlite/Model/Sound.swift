@@ -46,7 +46,7 @@ final class Sound {
     @ObservationIgnored var onChange: ((SoundPrefs) -> Void)?
 
     init() {
-        prefs = Storage.load(SoundPrefs.self, "sound.json") ?? SoundPrefs()
+        prefs = Storage.loadMerged(SoundPrefs.self, "sound.json", defaults: SoundPrefs()) ?? SoundPrefs()
         FXShared.shared.update(prefs)
     }
 }

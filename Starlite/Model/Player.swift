@@ -11,6 +11,9 @@ enum RepeatMode: String, Codable {
 /// background too, with the lock screen's controls.
 @Observable
 final class Player {
+    /// The one player (the widget's buttons reach it through CommandBridge).
+    static let shared = Player()
+
     private(set) var queue: [Track] = []
     private(set) var index = 0
     private(set) var playing = false
@@ -39,8 +42,18 @@ final class Player {
     @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var sessionReady = false
     @ObservationIgnored private var artTask: Task<Void, Never>?
+    /// The song whose cover the widget has.
+    @ObservationIgnored private var widgetArtFor: String?
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
+
+    /// The exact playback time, read from the player right now (the lyrics
+    /// follow this every frame; `position` only updates four times a second).
+    var exactTime: Double {
+        guard player.currentItem != nil else { return position }
+        let t = CMTimeGetSeconds(player.currentTime())
+        return t.isFinite ? t : position
+    }
     var upNext: [Track] { queue.indices.contains(index + 1) ? Array(queue[(index + 1)...]) : [] }
 
     func configure(services: Services, library: Library, look: Look, sound: Sound, lastfm: LastFM) {
@@ -51,6 +64,9 @@ final class Player {
         self.lastfm = lastfm
         sound.onChange = { [weak self] p in self?.applySound(p) }
         applySound(sound.prefs)
+        NotificationCenter.default.addObserver(forName: .starliteLikesChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.syncWidget()
+        }
         player.automaticallyWaitsToMinimizeStalling = true
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] t in
             guard let self else { return }
@@ -131,6 +147,54 @@ final class Player {
             playing = true
         }
         updateNowPlaying()
+        syncWidget()
+    }
+
+    /// A button in the widget was pressed.
+    func handle(_ c: PlayerCommand) {
+        switch c {
+        case .toggle: toggle()
+        case .next: next()
+        case .previous: previous()
+        case .like:
+            if let t = current { library?.toggleLike(t) }
+        }
+        syncWidget()
+    }
+
+    /// Tells the widget what's playing (and its cover, once per song).
+    func syncWidget() {
+        var s = WidgetSnapshot()
+        if let t = current {
+            s.title = t.title
+            s.artist = t.artist
+            s.album = t.album
+            s.hasTrack = true
+            s.playing = playing
+            s.elapsed = exactTime
+            s.at = Date()
+            s.duration = duration > 0 ? duration : t.duration
+            s.liked = library?.isLiked(t) ?? false
+            s.upNext = upNext.first.map { "\($0.title) · \($0.artist)" }
+        }
+        if let look {
+            let p = look.palette
+            s.themeBackground = RGBA(p.background)
+            s.themeText = RGBA(p.text)
+            s.themeAccent = RGBA(p.accent)
+            s.coverColor = look.coverColor.map { RGBA($0) }
+        }
+        if widgetArtFor != current?.id || (current != nil && artworkImage != nil && !FileManager.default.fileExists(atPath: AppGroup.artworkURL.path)) {
+            if let img = artworkImage, let data = img.squareThumbnail(360).jpegData(compressionQuality: 0.85) {
+                try? data.write(to: AppGroup.artworkURL, options: .atomic)
+                widgetArtFor = current?.id
+            } else {
+                try? FileManager.default.removeItem(at: AppGroup.artworkURL)
+                widgetArtFor = artworkImage == nil ? nil : current?.id
+            }
+        }
+        AppGroup.write(s, "widget-now.json")
+        AppGroup.reloadWidgets()
     }
 
     func next() {
@@ -157,7 +221,9 @@ final class Player {
 
     func seek(to seconds: Double) {
         position = seconds
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            DispatchQueue.main.async { self?.syncWidget() }
+        }
         updateNowPlaying()
     }
 
@@ -191,6 +257,7 @@ final class Player {
             playing = false
             seek(to: 0)
             player.pause()
+            syncWidget()
         }
     }
 
@@ -240,6 +307,7 @@ final class Player {
         if playing { player.play() }
         updateNowPlaying()
         loadArtwork(t)
+        syncWidget()
     }
 
     /// Speed (and whether the pitch stays) for what plays now and next.
@@ -279,6 +347,8 @@ final class Player {
                 self.artworkImage = img
                 self.look?.coverColor = img.averageColor
                 self.updateNowPlaying()
+                self.widgetArtFor = nil
+                self.syncWidget()
             }
         }
     }
@@ -336,7 +406,24 @@ final class Player {
     }
 }
 
+extension Notification.Name {
+    /// Liked songs changed (the widget shows the heart).
+    static let starliteLikesChanged = Notification.Name("starliteLikesChanged")
+}
+
 extension UIImage {
+    /// A square, smaller copy (the widget's cover).
+    func squareThumbnail(_ side: CGFloat) -> UIImage {
+        let s = min(size.width, size.height)
+        guard s > 0 else { return self }
+        let scale = side / s
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            draw(in: CGRect(x: (side - size.width * scale) / 2, y: (side - size.height * scale) / 2, width: size.width * scale, height: size.height * scale))
+        }
+    }
+
     /// The picture's average colour, a little livelier (for the accent).
     var averageColor: Color? {
         guard let cg = cgImage else { return nil }

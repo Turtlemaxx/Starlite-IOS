@@ -1,24 +1,5 @@
 import SwiftUI
 
-/// A colour that can be saved.
-struct RGBA: Codable, Hashable {
-    var r: Double, g: Double, b: Double, a: Double = 1
-
-    init(_ r: Double, _ g: Double, _ b: Double, _ a: Double = 1) {
-        self.r = r; self.g = g; self.b = b; self.a = a
-    }
-
-    init(_ c: Color) {
-        let u = UIColor(c)
-        var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 1)
-        u.getRed(&r, green: &g, blue: &b, alpha: &a)
-        self.init(Double(r), Double(g), Double(b), Double(a))
-    }
-
-    var color: Color { Color(red: r, green: g, blue: b, opacity: a) }
-    var luminance: Double { 0.2126 * r + 0.7152 * g + 0.0722 * b }
-}
-
 enum ThemeKind: String, Codable, CaseIterable, Identifiable {
     case dark, light, cherry, stars, bubbles, custom
     var id: String { rawValue }
@@ -146,6 +127,13 @@ struct LookPrefs: Codable, Hashable {
     var shelfSize: ShelfSize = .large
     var minimizeTabBar = true
     var bigTitles = true
+    /// The "No playlists yet" card was closed.
+    var hideEmptyHint = false
+    /// Opening a playlist (the CD) and other movement.
+    var animations = true
+    var animationSpeed: Double = 1
+    /// Lyrics a little earlier (−) or later (+), seconds.
+    var lyricsOffset: Double = 0
     // Playback and the rest
     var stream: StreamQuality = .original
     var download: StreamQuality = .original
@@ -187,11 +175,26 @@ final class Look {
     var coverColor: Color?
 
     init() {
-        prefs = Storage.load(LookPrefs.self, "look.json") ?? LookPrefs()
-        saved = Storage.load([SavedLook].self, "looks.json") ?? []
+        prefs = Storage.loadMerged(LookPrefs.self, "look.json", defaults: LookPrefs()) ?? LookPrefs()
+        saved = Storage.load([SavedLook].self, "looks.json") ?? Look.olderSavedLooks() ?? []
     }
 
     var palette: Palette { Look.palette(prefs, cover: coverColor) }
+
+    /// Saved looks from an older version: the settings they don't have yet
+    /// take the default.
+    private static func olderSavedLooks() -> [SavedLook]? {
+        guard !Storage.demo, let data = try? Data(contentsOf: Storage.support.appendingPathComponent("looks.json")),
+              let items = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]],
+              let base = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(LookPrefs()))) as? [String: Any] else { return nil }
+        let fixed: [[String: Any]] = items.map { item in
+            var item = item
+            if let l = item["look"] as? [String: Any] { item["look"] = base.merging(l) { _, new in new } }
+            return item
+        }
+        guard let merged = try? JSONSerialization.data(withJSONObject: fixed) else { return nil }
+        return try? JSONDecoder().decode([SavedLook].self, from: merged)
+    }
 
     /// How another theme would look (the theme cards in Settings).
     func preview(_ t: ThemeKind) -> Palette {

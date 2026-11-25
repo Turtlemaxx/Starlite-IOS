@@ -8,7 +8,7 @@ struct SettingsTab: View {
     @Environment(LastFM.self) private var lastfm
     @State private var path = NavigationPath()
 
-    enum Page: Hashable { case appearance, layout, playback, sound, equalizer, lastfm, general }
+    enum Page: Hashable { case appearance, layout, widget, playback, sound, equalizer, lastfm, general }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -29,6 +29,7 @@ struct SettingsTab: View {
                 Section {
                     row(.appearance, "Appearance", symbol: "paintpalette")
                     row(.layout, "Layout", symbol: "rectangle.3.group")
+                    row(.widget, "Widget", symbol: "square.text.square")
                 }
                 .groupBackground(look)
 
@@ -73,6 +74,7 @@ struct SettingsTab: View {
                 switch p {
                 case .appearance: AppearanceSettings()
                 case .layout: LayoutSettings()
+                case .widget: WidgetSettings()
                 case .playback: PlaybackSettings()
                 case .sound: SoundSettings()
                 case .equalizer: EqualizerSettings()
@@ -86,6 +88,7 @@ struct SettingsTab: View {
                     if DemoScreen.current == .appearance { path.append(Page.appearance) }
                     if DemoScreen.current == .layout { path.append(Page.layout) }
                     if DemoScreen.current == .sound { path.append(Page.sound) }
+                    if DemoScreen.current == .widget { path.append(Page.widget) }
                 }
             }
         }
@@ -376,6 +379,28 @@ struct LayoutSettings: View {
             }
             .groupBackground(look)
 
+            Section {
+                Toggle("Animations", isOn: $look.prefs.animations)
+                if look.prefs.animations {
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Text("Speed")
+                            Spacer()
+                            Text(look.prefs.animationSpeed == 1 ? "Normal" : String(format: "%.2f×", look.prefs.animationSpeed)).foregroundStyle(look.palette.secondary)
+                        }
+                        Slider(value: $look.prefs.animationSpeed, in: 0.5...2, step: 0.25)
+                    }
+                }
+                if look.prefs.hideEmptyHint {
+                    Button("Show the \u{201c}No Playlists Yet\u{201d} Card Again") { look.prefs.hideEmptyHint = false }
+                }
+            } header: {
+                Text("Animations")
+            } footer: {
+                Text("Opening a playlist: its CD pulls out, slides down, and the playlist grows out of the cover. Off: pages just appear.")
+            }
+            .groupBackground(look)
+
             Section("Navigation") {
                 Toggle("Large Titles", isOn: $look.prefs.bigTitles)
                 Toggle("Shrink Tab Bar While Scrolling", isOn: $look.prefs.minimizeTabBar)
@@ -413,10 +438,18 @@ struct PlaybackSettings: View {
 
             Section {
                 Toggle("Find Lyrics Online", isOn: $look.prefs.lyricsOnline)
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("Timing")
+                        Spacer()
+                        Text(look.prefs.lyricsOffset == 0 ? "As timed" : String(format: "%+.1f s", look.prefs.lyricsOffset)).monospacedDigit().foregroundStyle(look.palette.secondary)
+                    }
+                    Slider(value: $look.prefs.lyricsOffset, in: -1.5...1.5, step: 0.1)
+                }
             } header: {
                 Text("Lyrics")
             } footer: {
-                Text("Timed lyrics for the song you're playing, from lrclib.net (the same as Starlite on the computer).")
+                Text("Timed lyrics for the song you're playing, from lrclib.net (the same as Starlite on the computer). Timing: if the words light up too late, move it to +; too early, to \u{2212} (Bluetooth headphones can lag).")
             }
             .groupBackground(look)
         }

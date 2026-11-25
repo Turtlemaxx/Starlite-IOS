@@ -30,6 +30,17 @@ enum Storage {
         return try? JSONDecoder().decode(T.self, from: data)
     }
 
+    /// Like `load`, but a file from an older version (without the newest
+    /// settings) still loads: what's missing takes the default.
+    static func loadMerged<T: Codable>(_ type: T.Type, _ name: String, defaults: T) -> T? {
+        guard !demo, let data = try? Data(contentsOf: support.appendingPathComponent(name)) else { return nil }
+        if let v = try? JSONDecoder().decode(T.self, from: data) { return v }
+        guard let saved = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let base = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(defaults))) as? [String: Any],
+              let merged = try? JSONSerialization.data(withJSONObject: base.merging(saved) { _, new in new }) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: merged)
+    }
+
     static func save<T: Encodable>(_ value: T, _ name: String) {
         guard !demo, let data = try? JSONEncoder().encode(value) else { return }
         try? data.write(to: support.appendingPathComponent(name), options: .atomic)

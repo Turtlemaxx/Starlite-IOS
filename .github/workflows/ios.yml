@@ -41,6 +41,12 @@ jobs:
           VER=$(grep -m1 'MARKETING_VERSION' project.yml | sed 's/.*"\(.*\)"/\1/')
           mkdir -p out/Payload
           cp -R build/Build/Products/Release-iphoneos/Starlite.app out/Payload/
+          # Sign without a certificate, only so the App Group entitlement is in
+          # the IPA (the widget and the app share what's playing through it);
+          # AltStore / Sideloadly sign it properly with your Apple ID.
+          codesign -f -s - --entitlements Widget/StarliteWidget.entitlements out/Payload/Starlite.app/PlugIns/StarliteWidget.appex
+          codesign -f -s - --entitlements Starlite/Starlite.entitlements out/Payload/Starlite.app
+          codesign -d --entitlements - out/Payload/Starlite.app 2>/dev/null | head -20
           (cd out && zip -qry "Starlite-iOS-$VER.ipa" Payload)
           ls -la out
           echo "VER=$VER" >> "$GITHUB_ENV"
@@ -68,7 +74,7 @@ jobs:
           xcrun simctl status_bar "$DEV" override --time 9:41 --batteryState charged --batteryLevel 100 || true
           xcrun simctl install "$DEV" simbuild/Build/Products/Debug-iphonesimulator/Starlite.app
           mkdir -p shots
-          for s in playlists playlist nowplaying lyrics server search settings appearance sound layout list light bubbles; do
+          for s in playlists playlist nowplaying lyrics server search settings appearance sound widget layout list empty light bubbles; do
             xcrun simctl launch --terminate-running-process "$DEV" io.github.turtlemaxx.starlite -StarliteDemo YES -StarliteScreen "$s"
             sleep 7
             xcrun simctl io "$DEV" screenshot "shots/$s.png"

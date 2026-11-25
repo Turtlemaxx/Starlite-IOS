@@ -52,11 +52,11 @@ struct PlaylistsTab: View {
                 VStack(alignment: .leading, spacing: 26) {
                     HStack(spacing: 14) {
                         PinnedTile(title: "Liked Music", count: library.liked.count, symbol: "heart") {
-                            path.append(ListKind.liked)
+                            push(ListKind.liked)
                         }
                         .matchedTransitionSource(id: ListKind.liked.zoomId, in: zoom)
                         PinnedTile(title: "Downloaded", count: library.downloaded.count, symbol: "arrow.down.circle") {
-                            path.append(ListKind.downloaded)
+                            push(ListKind.downloaded)
                         }
                         .matchedTransitionSource(id: ListKind.downloaded.zoomId, in: zoom)
                     }
@@ -97,9 +97,14 @@ struct PlaylistsTab: View {
                 }
             }
             .navigationDestination(for: ListKind.self) { kind in
-                // The page grows out of the CD (or tile) that was tapped.
-                CollectionView(collection: kind)
-                    .navigationTransition(.zoom(sourceID: kind.zoomId, in: zoom))
+                // The page grows out of the CD (or tile) that was tapped
+                // (or just appears, with animations off).
+                if look.prefs.animations {
+                    CollectionView(collection: kind)
+                        .navigationTransition(.zoom(sourceID: kind.zoomId, in: zoom))
+                } else {
+                    CollectionView(collection: kind)
+                }
             }
             .alert("New Playlist", isPresented: $naming) {
                 TextField("Name", text: $newName)
@@ -124,6 +129,17 @@ struct PlaylistsTab: View {
         }
     }
 
+    /// Opens a page (without any movement when animations are off).
+    private func push(_ kind: ListKind) {
+        if look.prefs.animations {
+            path.append(kind)
+        } else {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { path.append(kind) }
+        }
+    }
+
     private func header(_ title: String, count: Int?, logo: String? = nil) -> some View {
         HStack(alignment: .center, spacing: 8) {
             if let logo {
@@ -144,11 +160,11 @@ struct PlaylistsTab: View {
             if items.isEmpty {
                 empty()
             } else if look.prefs.shelf {
-                Bookshelf(items: items, zoom: zoom, open: { path.append($0.kind) }, menu: { menu($0) })
+                Bookshelf(items: items, zoom: zoom, open: { push($0.kind) }, menu: { menu($0) })
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(items) { item in
-                        Button { path.append(item.kind) } label: {
+                        Button { push(item.kind) } label: {
                             HStack(spacing: 14) {
                                 ArtworkView(url: item.artwork, seed: item.name, symbol: item.symbol, corner: CGFloat(look.prefs.corners) * 0.5)
                                     .frame(width: 60, height: 60)
@@ -172,7 +188,13 @@ struct PlaylistsTab: View {
         }
     }
 
-    private var emptyShelf: some View {
+    @ViewBuilder private var emptyShelf: some View {
+        if !look.prefs.hideEmptyHint {
+            emptyCard
+        }
+    }
+
+    private var emptyCard: some View {
         VStack(spacing: 12) {
             Image(systemName: "opticaldisc").font(.system(size: 40)).foregroundStyle(look.palette.secondary)
             Text("No playlists yet").font(.headline)
@@ -181,6 +203,20 @@ struct PlaylistsTab: View {
         }
         .frame(maxWidth: .infinity)
         .padding(28)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation(.snappy) { look.prefs.hideEmptyHint = true }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(look.palette.secondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+            .accessibilityLabel("Don't show this again")
+        }
         .panel(look)
     }
 
@@ -256,15 +292,29 @@ private struct Bookshelf<M: View>: View {
     var zoom: Namespace.ID
     var open: (ShelfItem) -> Void
     @ViewBuilder var menu: (ShelfItem) -> M
-    /// The CD being opened: its disc glides out, then the page opens.
+    /// The CD being opened, and how far: 1 the disc pulled out, 2 it slid
+    /// down (into the page that opens).
     @State private var opening: String?
+    @State private var stage = 0
 
     private func tap(_ item: ShelfItem) {
         guard opening == nil else { return }
-        withAnimation(.easeOut(duration: 0.22)) { opening = item.id }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { open(item) }
+        guard look.prefs.animations else {
+            open(item)
+            return
+        }
+        let k = 1 / max(0.25, look.prefs.animationSpeed)
+        opening = item.id
+        withAnimation(.easeOut(duration: 0.2 * k)) { stage = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18 * k) {
+            withAnimation(.easeIn(duration: 0.22 * k)) { stage = 2 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 * k) { open(item) }
         // Back in place (unseen, behind the page) for when you come back.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { opening = nil }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3 * k + 0.7) {
+            opening = nil
+            stage = 0
+        }
     }
 
     /// The playlist that's playing (its disc stays out, turning).
@@ -282,11 +332,11 @@ private struct Bookshelf<M: View>: View {
                     HStack(alignment: .bottom, spacing: 22) {
                         ForEach(row) { item in
                             Button { tap(item) } label: {
-                                CDCase(item: item, pulled: opening == item.id, spinning: isPlaying(item), zoom: zoom)
+                                CDCase(item: item, stage: opening == item.id ? stage : 0, spinning: isPlaying(item), zoom: zoom)
                             }
                             .buttonStyle(PressScale())
                             .contextMenu { menu(item) }
-                            .tapFeedback(look, trigger: opening == item.id)
+                            .tapFeedback(look, trigger: opening == item.id && stage == 1)
                         }
                         if row.count < cols {
                             ForEach(0..<(cols - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity) }
@@ -322,7 +372,8 @@ private struct Bookshelf<M: View>: View {
 struct CDCase: View {
     @Environment(Look.self) private var look
     var item: ShelfItem
-    var pulled = false
+    /// 0 in place, 1 pulled out, 2 slid down.
+    var stage = 0
     var spinning = false
     var zoom: Namespace.ID? = nil
 
@@ -331,15 +382,18 @@ struct CDCase: View {
             let side = g.size.height
             let disc = side * 0.92
             let rest = g.size.width - disc
-            let out = pulled ? side * 0.3 : (spinning ? side * 0.12 : 0)
+            let out = stage >= 1 ? side * 0.5 : (spinning ? side * 0.12 : 0)
+            let down = stage == 2 ? side * 0.55 : 0
             ZStack(alignment: .leading) {
                 TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { tl in
                     let turn = spinning ? tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 8) / 8 * 360 : 0
                     Disc(item: item)
-                        .rotationEffect(.degrees(turn + (pulled ? 70 : 0)))
+                        .rotationEffect(.degrees(turn + Double(stage) * 45))
                 }
                 .frame(width: disc, height: disc)
-                .offset(x: rest + out)
+                .offset(x: rest + out, y: down)
+                .scaleEffect(stage == 2 ? 0.9 : 1)
+                .opacity(stage == 2 ? 0 : 1)
                 .shadow(color: .black.opacity(0.22), radius: 4, x: 2, y: 2)
                 cover(side)
             }

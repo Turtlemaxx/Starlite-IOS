@@ -270,12 +270,16 @@ private struct RoutePicker: UIViewRepresentable {
     func updateUIView(_ v: AVRoutePickerView, context: Context) {}
 }
 
-/// The lyrics, the current line bright; tap a line to go there.
+/// The lyrics, Apple Music style: big bold lines, the one being sung lit up
+/// word by word as it's sung, the others dimmed and softly blurred, pauses
+/// as three breathing dots. Follows the exact playback time every frame.
+/// Tap a line to go there.
 private struct LyricsPane: View {
     @Environment(Player.self) private var player
     @Environment(Look.self) private var look
     @State private var lines: [LyricLine]?
     @State private var loading = false
+    @State private var shown = -1
 
     var body: some View {
         let t = player.current
@@ -283,29 +287,10 @@ private struct LyricsPane: View {
             if loading {
                 ProgressView().tint(.white)
             } else if let lines, !lines.isEmpty {
-                let timed = lines.first?.time != nil
-                let now = timed ? (lines.lastIndex { ($0.time ?? 0) <= player.position + 0.25 } ?? -1) : -1
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
-                            ForEach(lines) { l in
-                                Text(l.text.isEmpty ? "♪" : l.text)
-                                    .font(.title2.weight(.bold))
-                                    .foregroundStyle(.white.opacity(!timed || l.id == now ? 1 : 0.35))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .id(l.id)
-                                    .onTapGesture { if let s = l.time { player.seek(to: s) } }
-                                    .animation(.easeOut(duration: 0.25), value: now)
-                            }
-                        }
-                        .padding(.vertical, 40)
-                    }
-                    .scrollIndicators(.hidden)
-                    .mask(LinearGradient(colors: [.clear, .black, .black, .clear], startPoint: .top, endPoint: .bottom))
-                    .onChange(of: now) { _, n in
-                        if n >= 0 { withAnimation(.easeInOut(duration: 0.4)) { proxy.scrollTo(n, anchor: .center) } }
-                    }
-                    .onAppear { if now >= 0 { proxy.scrollTo(now, anchor: .center) } }
+                if lines.first?.time != nil {
+                    timed(lines)
+                } else {
+                    plain(lines)
                 }
             } else {
                 VStack(spacing: 8) {
@@ -322,7 +307,116 @@ private struct LyricsPane: View {
             loading = true
             lines = await Lyrics.fetch(t)
             loading = false
+            shown = -1
         }
+    }
+
+    /// The line being sung at `now` (the last one that has started).
+    private func index(_ lines: [LyricLine], _ now: Double) -> Int {
+        var lo = 0, hi = lines.count - 1, found = -1
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if (lines[mid].time ?? 0) <= now { found = mid; lo = mid + 1 } else { hi = mid - 1 }
+        }
+        return found
+    }
+
+    private func timed(_ lines: [LyricLine]) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                TimelineView(.animation(paused: !player.playing)) { tl in
+                    let now = player.exactTime + look.prefs.lyricsOffset
+                    let cur = index(lines, now)
+                    VStack(alignment: .leading, spacing: 26) {
+                        ForEach(lines) { l in
+                            row(l, current: l.id == cur, distance: abs(l.id - cur), now: now)
+                                .id(l.id)
+                                .onTapGesture { if let s = l.time { player.seek(to: max(0, s - look.prefs.lyricsOffset)) } }
+                        }
+                    }
+                    .padding(.top, 60)
+                    .padding(.bottom, 320)
+                    .onChange(of: cur) { _, n in
+                        guard n >= 0 else { return }
+                        let k = 1 / max(0.25, look.prefs.animationSpeed)
+                        withAnimation(look.prefs.animations ? .spring(response: 0.6 * k, dampingFraction: 0.86) : nil) {
+                            proxy.scrollTo(n, anchor: UnitPoint(x: 0, y: 0.18))
+                        }
+                    }
+                    .onAppear {
+                        if cur >= 0 { proxy.scrollTo(cur, anchor: UnitPoint(x: 0, y: 0.18)) }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.08), .init(color: .black, location: 0.82), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom))
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ l: LyricLine, current: Bool, distance: Int, now: Double) -> some View {
+        Group {
+            if l.gap {
+                Dots(start: l.time ?? 0, end: l.end ?? 0, now: now, active: current)
+                    .frame(height: 36, alignment: .leading)
+            } else if current {
+                // Each word lights up as it's sung (a quick fade, like a wipe).
+                l.words.reduce(Text("")) { acc, w in
+                    let p = w.end > w.start ? max(0, min(1, (now - w.start) / (w.end - w.start))) : (now >= w.start ? 1 : 0)
+                    return acc + Text(w.text + " ").foregroundStyle(Color.white.opacity(0.34 + 0.66 * p))
+                }
+            } else {
+                Text(l.text).foregroundStyle(.white.opacity(distance == 0 ? 1 : 0.32))
+            }
+        }
+        .font(.system(size: 31, weight: .bold))
+        .lineSpacing(2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .blur(radius: current || l.gap ? 0 : min(2.6, Double(distance) * 0.9))
+        .scaleEffect(current ? 1 : 0.985, anchor: .leading)
+        .animation(look.prefs.animations ? .easeOut(duration: 0.35) : nil, value: current)
+        .contentShape(Rectangle())
+    }
+
+    private func plain(_ lines: [LyricLine]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(lines) { l in
+                    Text(l.text.isEmpty ? " " : l.text)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.vertical, 30)
+        }
+        .scrollIndicators(.hidden)
+    }
+}
+
+/// A pause in the singing: three dots that fill one after another and
+/// breathe, shrinking away just before the next line.
+private struct Dots: View {
+    var start: Double
+    var end: Double
+    var now: Double
+    var active: Bool
+
+    var body: some View {
+        let span = max(0.1, end - start)
+        let p = active ? max(0, min(1, (now - start) / span)) : 0
+        let breathe = active ? 1 + 0.12 * sin(now * 3.2) : 1
+        let leaving = active ? max(0, min(1, (end - now) / 0.4)) : 1
+        HStack(spacing: 9) {
+            ForEach(0..<3) { k in
+                let f = max(0, min(1, p * 3 - Double(k)))
+                Circle()
+                    .fill(.white.opacity(0.3 + 0.7 * f))
+                    .frame(width: 12, height: 12)
+            }
+        }
+        .scaleEffect(breathe * leaving, anchor: .leading)
+        .opacity(active ? 1 : 0.35)
     }
 }
 

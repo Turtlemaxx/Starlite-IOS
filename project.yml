@@ -8,7 +8,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
+    MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "1"
     TARGETED_DEVICE_FAMILY: "1,2"
     CODE_SIGN_STYLE: Manual
@@ -19,6 +19,10 @@ targets:
     platform: iOS
     sources:
       - Starlite
+      - Shared
+    dependencies:
+      - target: StarliteWidget
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.turtlemaxx.starlite
@@ -26,6 +30,12 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_FILE: Starlite/Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Starlite/Starlite.entitlements
+    entitlements:
+      path: Starlite/Starlite.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.io.github.turtlemaxx.starlite
     info:
       path: Starlite/Info.plist
       properties:
@@ -42,6 +52,9 @@ targets:
         NSPhotoLibraryUsageDescription: Pick a picture for your own theme's background.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        CFBundleURLTypes:
+          - CFBundleURLName: io.github.turtlemaxx.starlite
+            CFBundleURLSchemes: [starlite]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
@@ -51,3 +64,31 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
     scheme: {}
+
+  # The home-screen widget (now playing, 2×4).
+  StarliteWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.turtlemaxx.starlite.widget
+        INFOPLIST_FILE: Widget/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Widget/StarliteWidget.entitlements
+        SKIP_INSTALL: YES
+    entitlements:
+      path: Widget/StarliteWidget.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.io.github.turtlemaxx.starlite
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Starlite
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension

@@ -5,13 +5,15 @@ struct StarliteApp: App {
     @State private var look = Look()
     @State private var library = Library()
     @State private var services = Services()
-    @State private var player = Player()
+    @State private var player = Player.shared
     @State private var sound = Sound()
     @State private var lastfm = LastFM()
 
     init() {
         // Covers come over the network a lot: keep plenty of them.
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
+        // The widget's buttons.
+        CommandBridge.handler = { Player.shared.handle($0) }
     }
 
     var body: some Scene {
@@ -28,6 +30,7 @@ struct StarliteApp: App {
                     if Storage.demo {
                         Demo.fill(library: library, services: services, player: player)
                     }
+                    player.syncWidget()
                 }
                 .task {
                     await library.scan()
@@ -43,7 +46,7 @@ enum AppTab: Hashable {
 
 /// The screens the screenshot run opens (launch argument -StarliteScreen).
 enum DemoScreen: String {
-    case playlists, playlist, nowplaying, lyrics, server, settings, appearance, layout, sound, search, light, bubbles, list
+    case playlists, playlist, nowplaying, lyrics, server, settings, appearance, layout, sound, search, light, bubbles, list, widget, empty
     static var current: DemoScreen? {
         guard Storage.demo, let s = UserDefaults.standard.string(forKey: "StarliteScreen") else { return nil }
         return DemoScreen(rawValue: s)
@@ -86,6 +89,10 @@ struct RootView: View {
         .dynamicTypeSize(look.prefs.textSize.dynamic)
         .fontWeight(nil)
         .tapFeedback(look, trigger: tab)
+        // Tapping the widget opens the player.
+        .onOpenURL { url in
+            if url.scheme == "starlite", url.host() == "nowplaying" { nowPlaying = true }
+        }
         .onChange(of: phase) { _, p in
             // Songs put in through the Files app show up when you come back.
             if p == .active { Task { await library.scan() } }
@@ -93,7 +100,7 @@ struct RootView: View {
         .onAppear {
             switch DemoScreen.current {
             case .server: tab = .server
-            case .settings, .appearance, .layout, .sound: tab = .settings
+            case .settings, .appearance, .layout, .sound, .widget: tab = .settings
             case .nowplaying, .lyrics: nowPlaying = true
             case .search: tab = .search
             case .list: look.prefs.shelf = false
