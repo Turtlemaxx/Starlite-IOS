@@ -11,18 +11,19 @@ final class WidgetServer: @unchecked Sendable {
     private var listener: NWListener?
     private var now = Data()
     private var prefs = Data()
-    private var art: Data?
+    /// Covers by key: this song's and the next ones'.
+    private var arts: [String: Data] = [:]
 
     private init() {
         prefs = (try? JSONEncoder().encode(AppGroup.read(WidgetPrefs.self, "widget-prefs.json", defaults: WidgetPrefs()))) ?? Data()
         now = (try? JSONEncoder().encode(WidgetSnapshot.empty)) ?? Data()
     }
 
-    func update(now snap: WidgetSnapshot, art data: Data?) {
+    func update(now snap: WidgetSnapshot, arts covers: [String: Data]) {
         guard let n = try? JSONEncoder().encode(snap) else { return }
         queue.async {
             self.now = n
-            self.art = data
+            self.arts = covers
         }
     }
 
@@ -66,13 +67,18 @@ final class WidgetServer: @unchecked Sendable {
             switch path {
             case "/now": self.reply(c, self.now, type: "application/json")
             case "/prefs": self.reply(c, self.prefs, type: "application/json")
-            case "/art":
-                if let a = self.art { self.reply(c, a, type: "image/jpeg") } else { self.reply(c, nil) }
             default:
+                if path.hasPrefix("/art/") {
+                    if let a = self.arts[String(path.dropFirst(5))] { self.reply(c, a, type: "image/jpeg") } else { self.reply(c, nil) }
+                    return
+                }
                 if path.hasPrefix("/cmd/"), let cmd = PlayerCommand(rawValue: String(path.dropFirst(5))) {
-                    // Answers once the player has done it (and told us the new state).
-                    DispatchQueue.main.async {
+                    // Answers once the player has done it and has the new
+                    // song's cover (the widget redraws right after).
+                    Task { @MainActor in
                         CommandBridge.handler?(cmd)
+                        await CommandBridge.settle()
+                        Player.shared.syncWidget(reload: false)
                         self.queue.async { self.reply(c, Data("ok".utf8), type: "text/plain") }
                     }
                 } else {

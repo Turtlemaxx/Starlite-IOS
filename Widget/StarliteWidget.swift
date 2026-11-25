@@ -19,31 +19,41 @@ struct NowPlayingProvider: TimelineProvider {
 
     func getSnapshot(in context: Context, completion: @escaping (NowPlayingEntry) -> Void) {
         if context.isPreview { completion(placeholder(in: context)); return }
-        Task { completion(await current()) }
+        Task { completion(await entries().first ?? placeholder(in: context)) }
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<NowPlayingEntry>) -> Void) {
         Task {
-            let e = await current()
-            // When the song should be over, look again (the app usually asks sooner).
-            let next = e.snap.playing && e.snap.duration > 0 ? e.snap.endDate.addingTimeInterval(2) : Date.now.addingTimeInterval(1800)
-            completion(Timeline(entries: [e], policy: .after(next)))
+            let list = await entries()
+            // After the last song we know of, look again (the app usually asks sooner).
+            let last = list.last?.snap
+            let next = last.map { $0.playing && $0.duration > 0 ? $0.endDate.addingTimeInterval(2) : Date.now.addingTimeInterval(1800) } ?? Date.now.addingTimeInterval(1800)
+            completion(Timeline(entries: list, policy: .after(next)))
         }
     }
 
-    /// From the app itself (works when sideloaded, without an App Group),
-    /// else the App Group's files, else what the widget saw last.
-    private func current() async -> NowPlayingEntry {
+    /// From the app itself (works when sideloaded, without an App Group):
+    /// this song, then each next one from when it should start. Else the App
+    /// Group's files, else what the widget saw last.
+    private func entries() async -> [NowPlayingEntry] {
         if let live = await WidgetLink.fetch() {
-            let (snap, prefs, art) = live
+            let (snap, prefs, covers) = live
+            let art = snap.art.flatMap { covers[$0] }
             Cache.save(snap, prefs, art)
-            return NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)
+            var list = [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)]
+            if snap.playing && snap.duration > 0 {
+                for i in snap.upcoming.indices {
+                    guard let s = snap.later(i) else { break }
+                    list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
+                }
+            }
+            return list
         }
         if WidgetLink.hasGroup {
             let snap = AppGroup.read(WidgetSnapshot.self, "widget-now.json", defaults: .empty)
             let prefs = AppGroup.read(WidgetPrefs.self, "widget-prefs.json", defaults: WidgetPrefs())
             let art = snap.hasTrack ? UIImage(contentsOfFile: AppGroup.artworkURL.path) : nil
-            return NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: art)
+            return [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: art)]
         }
         // The app isn't running, so nothing is playing: show where it stopped.
         let (saved, prefs, art) = Cache.load()
@@ -53,7 +63,7 @@ struct NowPlayingProvider: TimelineProvider {
             snap.at = .now
             snap.playing = false
         }
-        return NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)
+        return [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? art : nil)]
     }
 }
 

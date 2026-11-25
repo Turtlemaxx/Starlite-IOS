@@ -45,6 +45,17 @@ final class Player {
     /// The song whose cover the widget has.
     @ObservationIgnored private var widgetArtFor: String?
     @ObservationIgnored private var widgetArt: Data?
+    /// Small covers (and their colour) for the widget, by song: the next
+    /// songs' are fetched ahead so the widget can move on by itself.
+    @ObservationIgnored private var widgetCovers: [String: (data: Data, color: RGBA?)] = [:]
+    @ObservationIgnored private var widgetFetching: Set<String> = []
+    @ObservationIgnored private var widgetReload: DispatchWorkItem?
+
+    /// Whether the widget can be drawn with this song's cover now.
+    var widgetReady: Bool {
+        guard let t = current, t.artwork != nil else { return true }
+        return artworkImage != nil || widgetCovers[t.id] != nil
+    }
 
     var current: Track? { queue.indices.contains(index) ? queue[index] : nil }
 
@@ -164,7 +175,7 @@ final class Player {
     }
 
     /// Tells the widget what's playing (and its cover, once per song).
-    func syncWidget() {
+    func syncWidget(reload: Bool = true) {
         var s = WidgetSnapshot()
         if let t = current {
             s.title = t.title
@@ -177,13 +188,25 @@ final class Player {
             s.duration = duration > 0 ? duration : t.duration
             s.liked = library?.isLiked(t) ?? false
             s.upNext = upNext.first.map { "\($0.title) · \($0.artist)" }
+            s.art = widgetArtKey(t.id)
+            s.upcoming = upNext.prefix(3).map { u in
+                WidgetSong(title: u.title, artist: u.artist, album: u.album, duration: u.duration,
+                           liked: library?.isLiked(u) ?? false,
+                           art: widgetCovers[u.id] != nil ? widgetArtKey(u.id) : nil,
+                           color: widgetCovers[u.id]?.color)
+            }
         }
         if let look {
             let p = look.palette
             s.themeBackground = RGBA(p.background)
             s.themeText = RGBA(p.text)
             s.themeAccent = RGBA(p.accent)
-            s.coverColor = look.coverColor.map { RGBA($0) }
+            // The colour of this song's cover (not the last one's while it loads).
+            if artworkImage != nil {
+                s.coverColor = look.coverColor.map { RGBA($0) }
+            } else if let t = current {
+                s.coverColor = widgetCovers[t.id]?.color
+            }
         }
         if widgetArtFor != current?.id || (current != nil && artworkImage != nil && !FileManager.default.fileExists(atPath: AppGroup.artworkURL.path)) {
             if let img = artworkImage, let data = img.squareThumbnail(360).jpegData(compressionQuality: 0.85) {
@@ -196,10 +219,65 @@ final class Player {
                 widgetArt = nil
             }
         }
+        // This song's cover: the one loaded for the player, or fetched ahead.
+        var covers: [String: Data] = [:]
+        if let t = current {
+            if let d = widgetArtFor == t.id ? widgetArt : nil {
+                covers[widgetArtKey(t.id)] = d
+            } else if let c = widgetCovers[t.id] {
+                covers[widgetArtKey(t.id)] = c.data
+            }
+            if covers.isEmpty { s.art = nil }
+            if widgetArt != nil, widgetArtFor == t.id, widgetCovers[t.id] == nil {
+                widgetCovers[t.id] = (widgetArt!, s.coverColor)
+            }
+            for u in upNext.prefix(3) {
+                if let c = widgetCovers[u.id] { covers[widgetArtKey(u.id)] = c.data }
+            }
+        }
         AppGroup.write(s, "widget-now.json")
         // Without an App Group (sideloaded), the widget asks the app itself.
-        WidgetServer.shared.update(now: s, art: current == nil ? nil : widgetArt)
-        AppGroup.reloadWidgets()
+        WidgetServer.shared.update(now: s, arts: covers)
+        prefetchWidgetCovers()
+        if reload { reloadWidgetSoon() }
+    }
+
+    /// One redraw for a burst of changes (a song starting, then its cover
+    /// arriving): the system ignores widget reloads that come too often.
+    private func reloadWidgetSoon() {
+        widgetReload?.cancel()
+        let w = DispatchWorkItem { AppGroup.reloadWidgets() }
+        widgetReload = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
+    }
+
+    /// Fetches the next songs' covers (small) so the widget has them.
+    private func prefetchWidgetCovers() {
+        let wanted = ([current].compactMap { $0 } + upNext.prefix(3))
+        let keep = Set(wanted.map(\.id))
+        widgetCovers = widgetCovers.filter { keep.contains($0.key) }
+        for t in wanted where widgetCovers[t.id] == nil && !widgetFetching.contains(t.id) {
+            guard let u = t.artwork else { continue }
+            widgetFetching.insert(t.id)
+            Task { [weak self] in
+                let data: Data?
+                if u.isFileURL {
+                    data = try? Data(contentsOf: u)
+                } else {
+                    data = try? await URLSession.shared.data(from: u).0
+                }
+                let img = data.flatMap { UIImage(data: $0) }
+                let small = img?.squareThumbnail(300).jpegData(compressionQuality: 0.8)
+                let color = img?.averageColor.map { RGBA($0) }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.widgetFetching.remove(t.id)
+                    guard let small else { return }
+                    self.widgetCovers[t.id] = (small, color)
+                    self.syncWidget()
+                }
+            }
+        }
     }
 
     func next() {

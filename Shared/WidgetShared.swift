@@ -61,6 +61,10 @@ struct WidgetSnapshot: Codable, Hashable {
     var themeBackground = RGBA(0.07, 0.07, 0.07)
     var themeText = RGBA(1, 1, 1)
     var themeAccent = RGBA(0.96, 0.96, 0.96)
+    /// The cover's key (the widget asks the app for /art/<key>).
+    var art: String?
+    /// The next songs, so the widget moves on by itself when one ends.
+    var upcoming: [WidgetSong] = []
 
     static let empty = WidgetSnapshot()
     static let sample = WidgetSnapshot(title: "Golden Hour Drive", artist: "Nova Lane", album: "Coastline", playing: true, elapsed: 74, at: Date(), duration: 214, liked: true, hasTrack: true, upNext: "Tidal · Nova Lane", coverColor: RGBA(0.45, 0.3, 0.75))
@@ -68,6 +72,46 @@ struct WidgetSnapshot: Codable, Hashable {
     /// When the song started (for a progress bar that moves by itself).
     var startDate: Date { at.addingTimeInterval(-elapsed) }
     var endDate: Date { startDate.addingTimeInterval(max(duration, 1)) }
+
+    /// What the widget should show once the songs before `i` have played
+    /// (if nothing interrupts).
+    func later(_ i: Int) -> WidgetSnapshot? {
+        guard upcoming.indices.contains(i) else { return nil }
+        var start = endDate
+        for k in 0..<i { start = start.addingTimeInterval(max(upcoming[k].duration, 1)) }
+        let song = upcoming[i]
+        var s = self
+        s.title = song.title
+        s.artist = song.artist
+        s.album = song.album
+        s.duration = song.duration
+        s.liked = song.liked
+        s.art = song.art
+        s.coverColor = song.color
+        s.elapsed = 0
+        s.at = start
+        s.upcoming = Array(upcoming.dropFirst(i + 1))
+        s.upNext = s.upcoming.first.map { "\($0.title) · \($0.artist)" }
+        return s
+    }
+}
+
+/// A song coming up, as the widget will show it.
+struct WidgetSong: Codable, Hashable {
+    var title: String
+    var artist: String
+    var album: String?
+    var duration: Double
+    var liked = false
+    var art: String?
+    var color: RGBA?
+}
+
+/// A short, file- and URL-safe key for a song's cover.
+func widgetArtKey(_ id: String) -> String {
+    var h: UInt64 = 0xcbf29ce484222325
+    for b in id.utf8 { h = (h ^ UInt64(b)) &* 0x100000001b3 }
+    return String(h, radix: 16)
 }
 
 // MARK: - The widget's settings
@@ -189,17 +233,29 @@ enum PlayerCommand: String {
 /// The app hands the widget's buttons to its player through this.
 enum CommandBridge {
     nonisolated(unsafe) static var handler: ((PlayerCommand) -> Void)?
+    /// Whether the app has the new song's cover yet (the widget redraws
+    /// right after a button, so it waits for it a little).
+    nonisolated(unsafe) static var ready: (() -> Bool)?
+
+    /// Waits (up to 1.5 s) until the app has the cover.
+    static func settle() async {
+        for _ in 0..<15 {
+            if await MainActor.run(body: { ready?() ?? true }) { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
 
     static func send(_ c: PlayerCommand) async {
         // Running inside the app: straight to the player.
         if handler != nil {
             await MainActor.run { handler?(c) }
+            await settle()
             return
         }
         // Running in the widget: ask the app, or signal it and give it a moment.
         if await WidgetLink.command(c) { return }
         WidgetLink.post(c)
-        try? await Task.sleep(for: .milliseconds(400))
+        try? await Task.sleep(for: .milliseconds(900))
     }
 }
 

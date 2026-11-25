@@ -188,9 +188,14 @@ struct WidgetContent: View {
             if prefs.showTimes {
                 HStack {
                     if snap.playing && snap.duration > 0 {
+                        // A running timer takes the width of its longest
+                        // value: each one fills half and hugs its edge.
                         Text(timerInterval: snap.startDate...snap.endDate, countsDown: false)
-                        Spacer()
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Text(timerInterval: snap.startDate...snap.endDate, countsDown: true)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     } else {
                         Text(clock(snap.elapsed))
                         Spacer()

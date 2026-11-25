@@ -14,6 +14,7 @@ struct StarliteApp: App {
         URLCache.shared = URLCache(memoryCapacity: 64 << 20, diskCapacity: 512 << 20)
         // The widget's buttons.
         CommandBridge.handler = { Player.shared.handle($0) }
+        CommandBridge.ready = { Player.shared.widgetReady }
         // The widget reaches the app this way when there's no App Group.
         WidgetLink.listen()
         WidgetServer.shared.start()

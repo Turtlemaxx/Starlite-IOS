@@ -16,8 +16,8 @@ enum WidgetLink {
 
     private static let session: URLSession = {
         let c = URLSessionConfiguration.ephemeral
-        c.timeoutIntervalForRequest = 1.5
-        c.timeoutIntervalForResource = 3
+        c.timeoutIntervalForRequest = 3
+        c.timeoutIntervalForResource = 5
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: c)
     }()
@@ -29,16 +29,22 @@ enum WidgetLink {
         return data
     }
 
-    /// What's playing, the widget's settings and the cover, from the app
-    /// (nil when the app isn't running).
-    static func fetch() async -> (WidgetSnapshot, WidgetPrefs, UIImage?)? {
+    /// What's playing, the widget's settings and the covers (this song's and
+    /// the next ones', by key), from the app; nil when the app isn't running.
+    static func fetch() async -> (WidgetSnapshot, WidgetPrefs, [String: UIImage])? {
         async let now = get("/now")
         async let prefs = get("/prefs")
-        async let art = get("/art")
         guard let n = await now, let snap = try? JSONDecoder().decode(WidgetSnapshot.self, from: n) else { return nil }
         let p = await prefs.flatMap { try? JSONDecoder().decode(WidgetPrefs.self, from: $0) } ?? WidgetPrefs()
-        let image = await art.flatMap { UIImage(data: $0) }
-        return (snap, p, image)
+        let keys = Array(Set(([snap.art] + snap.upcoming.map(\.art)).compactMap { $0 }))
+        var covers: [String: UIImage] = [:]
+        await withTaskGroup(of: (String, UIImage?).self) { group in
+            for k in keys {
+                group.addTask { (k, await get("/art/\(k)").flatMap { UIImage(data: $0) }) }
+            }
+            for await (k, img) in group { if let img { covers[k] = img } }
+        }
+        return (snap, p, covers)
     }
 
     /// Asks the app to do a button's job; true once it has.
