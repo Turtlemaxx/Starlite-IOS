@@ -18,6 +18,7 @@ Starlite plays your music from **Navidrome** or **Jellyfin**, and songs you keep
 - **Search:** the magnifying glass next to the tab bar searches your playlists, liked and downloaded songs and your servers at once.
 - **Now Playing:** the cover over its own colours, seek bar, volume, AirPlay, lyrics (lrclib.net), what plays next with shuffle and repeat, and more songs by the artist. Keeps playing in the background, with the lock screen's controls.
 - **Sound:** speed, bass, clarity, balance, mono and a 10-band equalizer with presets.
+- **Widget:** what's playing on your home screen (2×4), with controls, and every bit of it changeable in Settings → Widget.
 - **Last.fm:** "now playing" and scrobbles, with your own API key.
 - **Downloads:** download songs (or whole playlists) to play without a connection, or put music files in the Files app (On My iPhone → Starlite).
 - **Settings**, as customizable as on the computer: themes (Dark, Light, Cherry Blossom, Stars, Bubbles, your own colours and picture), panels (Liquid Glass, frosted or solid), corners, accent (the theme's, the playing cover's or your own), text size, icon weight, motion, song rows, the CD shelf, streaming and download quality, haptics. Save a look and switch between your looks.
