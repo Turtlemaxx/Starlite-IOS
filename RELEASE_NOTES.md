@@ -1,7 +1,7 @@
 **The first Starlite for iPhone.**
 
 - **Music Server:** Navidrome and Jellyfin: your server's playlists, newest albums and search. Save any server playlist into your own.
-- **Playlists:** Liked Music, Downloaded Music, and your playlists as big CD cases on shelves.
+- **Playlists:** Liked Music, Downloaded Music, and your playlists as big CDs on shelves: tap one and its disc slides out with a spin while the playlist grows out of the cover. The playing playlist's disc stays out, turning.
 - **Liquid Glass** tab bar with the playing song on it; the full player with AirPlay, volume, shuffle, repeat and the queue; background playback and lock screen controls.
 - **Downloads** for listening offline, and music you add in the Files app.
 - **Settings** as customizable as on the computer: themes (Dark, Light, Cherry Blossom, Stars, Bubbles, your own), panels, corners, accent, text, icons, motion, layout, quality. Save looks and switch between them.
