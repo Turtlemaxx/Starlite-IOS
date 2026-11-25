@@ -147,6 +147,16 @@ enum ListKind: Hashable {
     case liked
     case downloaded
     case server(ServerCollection)
+
+    /// Ties the page to what it grows out of when it opens.
+    var zoomId: String {
+        switch self {
+        case .playlist(let id): "playlist-" + id
+        case .liked: "liked"
+        case .downloaded: "downloaded"
+        case .server(let c): "server-" + c.id
+        }
+    }
 }
 
 /// A playlist, album, Liked or Downloaded: big cover, name, Play and

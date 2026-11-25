@@ -74,7 +74,6 @@ private struct Themed: ViewModifier {
             .scrollContentBackground(.hidden)
             .background { ThemeBackground(look: look).ignoresSafeArea() }
             .foregroundStyle(look.palette.text)
-            .tint(look.palette.accent)
     }
 }
 

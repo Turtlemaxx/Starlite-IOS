@@ -11,6 +11,7 @@ struct PlaylistsTab: View {
     @State private var newName = ""
     @State private var renaming: Playlist?
     @State private var deleting: Playlist?
+    @Namespace private var zoom
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -20,9 +21,11 @@ struct PlaylistsTab: View {
                         PinnedTile(title: "Liked Music", count: library.liked.count, symbol: "heart") {
                             path.append(ListKind.liked)
                         }
+                        .matchedTransitionSource(id: ListKind.liked.zoomId, in: zoom)
                         PinnedTile(title: "Downloaded", count: library.downloaded.count, symbol: "arrow.down.circle") {
                             path.append(ListKind.downloaded)
                         }
+                        .matchedTransitionSource(id: ListKind.downloaded.zoomId, in: zoom)
                     }
 
                     HStack(alignment: .firstTextBaseline) {
@@ -33,7 +36,7 @@ struct PlaylistsTab: View {
                     if library.playlists.isEmpty {
                         emptyShelf
                     } else if look.prefs.shelf {
-                        Bookshelf(playlists: library.playlists, open: { path.append(ListKind.playlist($0.id)) }, rename: { renaming = $0; newName = $0.name }, delete: { deleting = $0 })
+                        Bookshelf(playlists: library.playlists, zoom: zoom, open: { path.append(ListKind.playlist($0.id)) }, rename: { renaming = $0; newName = $0.name }, delete: { deleting = $0 })
                     } else {
                         LazyVStack(spacing: 0) {
                             ForEach(library.playlists) { p in
@@ -69,7 +72,11 @@ struct PlaylistsTab: View {
                     Button { newName = ""; naming = true } label: { Image(systemName: "plus") }
                 }
             }
-            .navigationDestination(for: ListKind.self) { CollectionView(collection: $0) }
+            .navigationDestination(for: ListKind.self) { kind in
+                // The page grows out of the CD (or tile) that was tapped.
+                CollectionView(collection: kind)
+                    .navigationTransition(.zoom(sourceID: kind.zoomId, in: zoom))
+            }
             .alert("New Playlist", isPresented: $naming) {
                 TextField("Name", text: $newName)
                 Button("Create") { library.create(newName) }
@@ -156,10 +163,28 @@ struct PressScale: ButtonStyle {
 private struct Bookshelf: View {
     @Environment(Look.self) private var look
     var playlists: [Playlist]
+    var zoom: Namespace.ID
     var open: (Playlist) -> Void
     var rename: (Playlist) -> Void
     var delete: (Playlist) -> Void
     @Environment(Player.self) private var player
+    /// The CD being opened: its disc slides out and spins, then the page opens.
+    @State private var opening: String?
+
+    private func tap(_ p: Playlist) {
+        guard opening == nil else { return }
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.72)) { opening = p.id }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) { open(p) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) { opening = nil }
+        }
+    }
+
+    /// The playlist that's playing (its disc stays out, turning).
+    private func isPlaying(_ p: Playlist) -> Bool {
+        guard player.playing, let c = player.current else { return false }
+        return p.tracks.contains { $0.id == c.id }
+    }
 
     var body: some View {
         let cols = look.prefs.shelfSize.columns
@@ -169,8 +194,11 @@ private struct Bookshelf: View {
                 VStack(spacing: 0) {
                     HStack(alignment: .bottom, spacing: 22) {
                         ForEach(row) { p in
-                            Button { open(p) } label: { CDCase(playlist: p) }
+                            Button { tap(p) } label: {
+                                CDCase(playlist: p, pulled: opening == p.id, spinning: isPlaying(p), zoom: zoom)
+                            }
                                 .buttonStyle(PressScale())
+                                .tapFeedback(look, trigger: opening == p.id)
                                 .contextMenu {
                                     Button { player.play(p.tracks) } label: { Label("Play", systemImage: "play.fill") }
                                     Button { player.play(p.tracks, shuffled: true) } label: { Label("Shuffle", systemImage: "shuffle") }
@@ -192,7 +220,7 @@ private struct Bookshelf: View {
                                 Text(songCount(p.tracks)).font(.caption).foregroundStyle(look.palette.secondary).lineLimit(1)
                             }
                             .frame(maxWidth: .infinity)
-                            .onTapGesture { open(p) }
+                            .onTapGesture { tap(p) }
                         }
                         if row.count < cols {
                             ForEach(0..<(cols - row.count), id: \.self) { _ in Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
@@ -206,31 +234,52 @@ private struct Bookshelf: View {
     }
 }
 
-/// A playlist as a CD: its cover, with the disc sliding out behind it.
+/// A playlist as a CD: its cover, with the disc peeking out behind it.
+/// Opening it slides the disc further out with a spin; the playing one's
+/// disc stays a little out, turning.
 struct CDCase: View {
     @Environment(Look.self) private var look
     var playlist: Playlist
+    var pulled = false
+    var spinning = false
+    var zoom: Namespace.ID? = nil
 
     var body: some View {
         GeometryReader { g in
             let side = g.size.height
             let disc = side * 0.92
+            let rest = g.size.width - disc
+            let out = pulled ? side * 0.42 : (spinning ? side * 0.12 : 0)
             ZStack(alignment: .leading) {
-                Disc(playlist: playlist)
-                    .frame(width: disc, height: disc)
-                    .offset(x: g.size.width - disc)
-                    .shadow(color: .black.opacity(0.25), radius: 4, x: 2, y: 2)
-                ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: max(3, CGFloat(look.prefs.corners) * 0.35))
-                    .frame(width: side, height: side)
-                    .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
+                TimelineView(.animation(minimumInterval: 1 / 30, paused: !spinning)) { tl in
+                    let turn = spinning ? tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 8) / 8 * 360 : 0
+                    Disc(playlist: playlist)
+                        .rotationEffect(.degrees(turn + (pulled ? 220 : 0)))
+                }
+                .frame(width: disc, height: disc)
+                .offset(x: rest + out)
+                .shadow(color: .black.opacity(0.25), radius: 4, x: 2, y: 2)
+                cover(side)
             }
         }
         .aspectRatio(1.22, contentMode: .fit)
         .frame(maxWidth: .infinity)
     }
+
+    @ViewBuilder private func cover(_ side: CGFloat) -> some View {
+        let art = ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: max(3, CGFloat(look.prefs.corners) * 0.35))
+            .frame(width: side, height: side)
+            .shadow(color: .black.opacity(0.35), radius: 10, x: 0, y: 6)
+            .rotation3DEffect(.degrees(pulled ? -8 : 0), axis: (x: 0, y: 1, z: 0), anchor: .leading)
+        if let zoom {
+            art.matchedTransitionSource(id: ListKind.playlist(playlist.id).zoomId, in: zoom)
+        } else {
+            art
+        }
+    }
 }
 
-/// A CD: silver with a faint rainbow, the cover printed on its label, a hole.
+/// A CD: brushed silver, the cover printed on its label, a hole.
 private struct Disc: View {
     @Environment(Look.self) private var look
     var playlist: Playlist
@@ -240,20 +289,23 @@ private struct Disc: View {
             let d = g.size.width
             ZStack {
                 Circle().fill(AngularGradient(colors: [
-                    Color(white: 0.86), Color(red: 0.80, green: 0.86, blue: 0.95), Color(white: 0.97),
-                    Color(red: 0.95, green: 0.86, blue: 0.92), Color(white: 0.82), Color(red: 0.86, green: 0.95, blue: 0.88),
-                    Color(white: 0.96), Color(white: 0.86),
+                    Color(white: 0.80), Color(white: 0.94), Color(white: 0.78), Color(white: 0.90),
+                    Color(white: 0.76), Color(white: 0.95), Color(white: 0.80),
                 ], center: .center))
+                // Fine grooves.
+                ForEach(1..<6) { k in
+                    Circle().strokeBorder(.black.opacity(0.045), lineWidth: 0.5)
+                        .frame(width: d * (0.66 + 0.06 * CGFloat(k)), height: d * (0.66 + 0.06 * CGFloat(k)))
+                }
                 // The label: the playlist's cover, printed on the disc.
                 ArtworkView(url: playlist.artwork, seed: playlist.name, symbol: playlist.symbol, corner: 0)
-                    .frame(width: d * 0.62, height: d * 0.62)
+                    .frame(width: d * 0.6, height: d * 0.6)
                     .clipShape(Circle())
-                    .opacity(0.9)
-                Circle().strokeBorder(.white.opacity(0.55), lineWidth: 1).frame(width: d * 0.62, height: d * 0.62)
+                Circle().strokeBorder(.white.opacity(0.5), lineWidth: 1).frame(width: d * 0.6, height: d * 0.6)
                 // The clear ring and the hole.
-                Circle().fill(Color(white: 0.9, opacity: 0.85)).frame(width: d * 0.2, height: d * 0.2)
+                Circle().fill(Color(white: 0.88, opacity: 0.9)).frame(width: d * 0.2, height: d * 0.2)
                 Circle().fill(look.palette.background).frame(width: d * 0.09, height: d * 0.09)
-                Circle().strokeBorder(.black.opacity(0.12), lineWidth: 0.5)
+                Circle().strokeBorder(.black.opacity(0.14), lineWidth: 0.5)
             }
         }
         .aspectRatio(1, contentMode: .fit)

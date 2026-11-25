@@ -85,6 +85,11 @@ final class Player {
         artworkImage = nil
     }
 
+    /// The screenshots' demo: looks as if it plays (nothing is loaded).
+    func demoPlaying() {
+        playing = true
+    }
+
     func playNext(_ t: Track) {
         if queue.isEmpty { play([t]); return }
         queue.insert(t, at: index + 1)
