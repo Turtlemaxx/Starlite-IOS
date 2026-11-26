@@ -53,6 +53,8 @@ final class Player {
     /// What the widget was last asked to show (no refresh if nothing changed:
     /// the system only allows so many).
     @ObservationIgnored private var widgetShown = ""
+    /// Whether the player is really playing (not waiting for the song to load).
+    @ObservationIgnored private var playbackKVO: NSKeyValueObservation?
 
     /// Whether the widget can be drawn with this song's cover now.
     var widgetReady: Bool {
@@ -83,6 +85,11 @@ final class Player {
             self?.syncWidget()
         }
         player.automaticallyWaitsToMinimizeStalling = true
+        // The widget follows what the player really does: when a song really
+        // starts (after loading), stops to load more, or pauses.
+        playbackKVO = player.observe(\.timeControlStatus, options: [.new]) { [weak self] p, _ in
+            DispatchQueue.main.async { self?.syncWidget() }
+        }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] t in
             guard let self else { return }
             self.position = CMTimeGetSeconds(t)
@@ -175,6 +182,7 @@ final class Player {
             if let t = current { library?.toggleLike(t) }
         }
         syncWidget()
+        WidgetLog.write("Widget button \(c.rawValue): now “\(current?.title ?? "nothing")” \(playing ? "playing" : "paused") at \(Int(exactTime))s.")
     }
 
     /// Tells the widget what's playing (and its cover, once per song).
@@ -185,7 +193,9 @@ final class Player {
             s.artist = t.artist
             s.album = t.album
             s.hasTrack = true
-            s.playing = playing
+            // Only while sound really comes out (not while loading).
+            s.playing = playing && player.timeControlStatus == .playing
+            s.rate = Double(player.defaultRate)
             s.elapsed = exactTime
             s.at = Date()
             s.duration = duration > 0 ? duration : t.duration
@@ -263,18 +273,21 @@ final class Player {
     /// arriving): the system ignores widget reloads that come too often.
     private func reloadWidgetSoon(_ s: WidgetSnapshot) {
         // What can be seen: a seek moves the start by more than 2 seconds.
-        let seen = [s.title, s.artist, "\(s.playing)", "\(Int((s.startDate.timeIntervalSince1970 / 2).rounded()))", "\(s.liked)",
+        let seen = [s.title, s.artist, "\(s.playing)", "\(Int(s.startDate.timeIntervalSince1970.rounded()))", "\(s.liked)",
                     s.art ?? "-", "\(s.coverColor.map { "\($0)" } ?? "-")", s.upcoming.map { "\($0.title)\($0.art ?? "-")" }.joined()].joined(separator: "|")
         guard seen != widgetShown else { return }
         widgetReload?.cancel()
         let w = DispatchWorkItem { [weak self] in
-            self?.widgetShown = seen
+            guard let self else { return }
+            // Fresh state right before asking (things move on during the wait).
+            self.syncWidget(reload: false)
+            self.widgetShown = seen
             AppGroup.reloadWidgets()
             WidgetServer.shared.askedReload()
             WidgetLog.write("Asked the widget to refresh: “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
         }
         widgetReload = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: w)
     }
 
     /// Fetches the next songs' covers (small) so the widget has them.

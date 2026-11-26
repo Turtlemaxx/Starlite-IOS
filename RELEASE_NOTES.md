@@ -1,4 +1,6 @@
-**Starlite for iPhone 0.3.5**
+**Starlite for iPhone 0.3.6**
+
+- **The widget follows what the player really does:** its bar starts when the song really starts (after loading), stops while it loads more, and stops when you pause, from anywhere. It also follows the playback speed.
 
 - **The widget shares a folder with the app again when sideloaded:** Feather, Sideloadly and AltStore rename the App Group when they sign the app; Starlite now reads the real name out of its own signature (and the names they leave behind), so the widget reads the song, the covers and its settings straight from the app's files. It moves on by itself when a song ends, and follows play / pause, jumps in the song and likes.
 - The cover stays in full colour on Clear and Tinted home screens.

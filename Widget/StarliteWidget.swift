@@ -87,7 +87,8 @@ struct NowPlayingProvider: TimelineProvider {
 
     private func log(_ from: String, _ list: [NowPlayingEntry]) {
         let next = list.dropFirst().map { "“\($0.snap.title)” at \(Self.clock.string(from: $0.date))\($0.artwork == nil ? " (no cover)" : "")" }
-        WidgetLog.write("Timeline from \(from): \(list.first.map { describe($0) } ?? "")\(next.isEmpty ? "" : "; then " + next.joined(separator: ", ")). Last drawn: \(RenderNote.last).")
+        let age = list.first.map { Int(Date.now.timeIntervalSince($0.snap.at)) } ?? 0
+        WidgetLog.write("Timeline from \(from) (saved by the app \(age)s ago): \(list.first.map { describe($0) } ?? "")\(next.isEmpty ? "" : "; then " + next.joined(separator: ", ")). Last drawn: \(RenderNote.last).")
     }
 
     private static let clock: DateFormatter = {

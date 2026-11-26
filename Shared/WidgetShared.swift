@@ -101,6 +101,8 @@ struct WidgetSnapshot: Codable, Hashable {
     var elapsed: Double = 0
     var at = Date()
     var duration: Double = 0
+    /// The playback speed (1 normal): the bar moves this much faster.
+    var rate: Double = 1
     var liked = false
     var hasTrack = false
     var upNext: String?
@@ -118,15 +120,16 @@ struct WidgetSnapshot: Codable, Hashable {
     static let sample = WidgetSnapshot(title: "Golden Hour Drive", artist: "Nova Lane", album: "Coastline", playing: true, elapsed: 74, at: Date(), duration: 214, liked: true, hasTrack: true, upNext: "Tidal · Nova Lane", coverColor: RGBA(0.45, 0.3, 0.75))
 
     /// When the song started (for a progress bar that moves by itself).
-    var startDate: Date { at.addingTimeInterval(-elapsed) }
-    var endDate: Date { startDate.addingTimeInterval(max(duration, 1)) }
+    var startDate: Date { at.addingTimeInterval(-elapsed / speed) }
+    var endDate: Date { startDate.addingTimeInterval(max(duration, 1) / speed) }
+    private var speed: Double { rate > 0.1 ? rate : 1 }
 
     /// What the widget should show once the songs before `i` have played
     /// (if nothing interrupts).
     func later(_ i: Int) -> WidgetSnapshot? {
         guard upcoming.indices.contains(i) else { return nil }
         var start = endDate
-        for k in 0..<i { start = start.addingTimeInterval(max(upcoming[k].duration, 1)) }
+        for k in 0..<i { start = start.addingTimeInterval(max(upcoming[k].duration, 1) / speed) }
         let song = upcoming[i]
         var s = self
         s.title = song.title
