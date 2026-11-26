@@ -68,14 +68,31 @@ struct NowPlayingProvider: TimelineProvider {
     }
 
     private func build(_ snap: WidgetSnapshot, _ prefs: WidgetPrefs, _ covers: [String: UIImage]) -> [NowPlayingEntry] {
-        var list = [NowPlayingEntry(date: .now, snap: snap, prefs: prefs, artwork: snap.hasTrack ? snap.art.flatMap { covers[$0] } : nil)]
+        // This song, then each next one from when it should start.
+        var songs = [snap]
         if snap.playing && snap.duration > 0 {
             for i in snap.upcoming.indices {
                 guard let s = snap.later(i) else { break }
-                list.append(NowPlayingEntry(date: s.at, snap: s, prefs: prefs, artwork: s.art.flatMap { covers[$0] }))
+                songs.append(s)
             }
         }
-        return list
+        // The widget may read this long after the app wrote it: start at the
+        // song that's on now. If every song it knows is over, Starlite isn't
+        // playing any more (it was closed): show the last one, stopped.
+        let now = Date.now
+        if let first = songs.firstIndex(where: { !$0.playing || $0.endDate > now }) {
+            songs = Array(songs[first...])
+        } else if var last = songs.last {
+            last.elapsed = last.duration
+            last.at = now
+            last.playing = false
+            last.upcoming = []
+            last.upNext = nil
+            songs = [last]
+        }
+        return songs.enumerated().map { i, s in
+            NowPlayingEntry(date: i == 0 ? now : s.at, snap: s, prefs: prefs, artwork: s.hasTrack ? s.art.flatMap { covers[$0] } : nil)
+        }
     }
 
     private func describe(_ e: NowPlayingEntry) -> String {

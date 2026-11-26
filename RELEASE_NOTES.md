@@ -1,4 +1,7 @@
-**Starlite for iPhone 0.3.6**
+**Starlite for iPhone 0.3.7**
+
+- **The widget plays through your queue by itself:** it knows the next six songs (with covers) and moves on when each one ends, without Starlite having to ask iOS for a refresh (iOS allows only a few of those a day while Starlite is in the background).
+- If Starlite was closed while playing, the widget shows the song stopped instead of a timer that keeps running.
 
 - **The widget follows what the player really does:** its bar starts when the song really starts (after loading), stops while it loads more, and stops when you pause, from anywhere. It also follows the playback speed.
 

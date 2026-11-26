@@ -4,8 +4,13 @@ import WidgetKit
 extension WidgetLog {
     /// Notes the shared folder and which Starlite widgets the system says are
     /// on the home screen (if none, the app's refreshes can't reach them).
+    nonisolated(unsafe) private static var notedFolder = false
+
     static func noteWidgets() {
-        write("Shared folder: \(AppGroup.id ?? "none found, the widget can't see the app's files") (tried \(AppGroup.candidates.joined(separator: ", ")))")
+        if !notedFolder {
+            notedFolder = true
+            write("Shared folder: \(AppGroup.id ?? "none found, the widget can't see the app's files") (tried \(AppGroup.candidates.joined(separator: ", ")))")
+        }
         WidgetCenter.shared.getCurrentConfigurations { result in
             switch result {
             case .success(let list):

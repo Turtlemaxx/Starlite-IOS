@@ -53,6 +53,9 @@ final class Player {
     /// What the widget was last asked to show (no refresh if nothing changed:
     /// the system only allows so many).
     @ObservationIgnored private var widgetShown = ""
+    /// What the widget was last asked to show (to tell whether it already
+    /// moved on to the next song by itself).
+    @ObservationIgnored private var widgetAsked: WidgetSnapshot?
     /// Whether the player is really playing (not waiting for the song to load).
     @ObservationIgnored private var playbackKVO: NSKeyValueObservation?
 
@@ -202,7 +205,7 @@ final class Player {
             s.liked = library?.isLiked(t) ?? false
             s.upNext = upNext.first.map { "\($0.title) · \($0.artist)" }
             s.art = widgetArtKey(t.id)
-            s.upcoming = upNext.prefix(3).map { u in
+            s.upcoming = upNext.prefix(6).map { u in
                 WidgetSong(title: u.title, artist: u.artist, album: u.album, duration: u.duration,
                            liked: library?.isLiked(u) ?? false,
                            art: widgetCovers[u.id] != nil ? widgetArtKey(u.id) : nil,
@@ -244,7 +247,7 @@ final class Player {
             if widgetArt != nil, widgetArtFor == t.id, widgetCovers[t.id] == nil {
                 widgetCovers[t.id] = (widgetArt!, s.coverColor)
             }
-            for u in upNext.prefix(3) {
+            for u in upNext.prefix(6) {
                 if let c = widgetCovers[u.id] { covers[widgetArtKey(u.id)] = c.data }
             }
         }
@@ -276,15 +279,33 @@ final class Player {
         let seen = [s.title, s.artist, "\(s.playing)", "\(Int(s.startDate.timeIntervalSince1970.rounded()))", "\(s.liked)",
                     s.art ?? "-", "\(s.coverColor.map { "\($0)" } ?? "-")", s.upcoming.map { "\($0.title)\($0.art ?? "-")" }.joined()].joined(separator: "|")
         guard seen != widgetShown else { return }
+        // In the background, iOS allows only a few widget refreshes a day:
+        // don't spend one when the next song started on time (the widget
+        // already moved on to it by itself), or when only a later song's
+        // cover arrived.
+        if UIApplication.shared.applicationState != .active, let last = widgetAsked {
+            let onTime = last.playing && s.playing && last.upcoming.first?.title == s.title
+                && abs(s.startDate.timeIntervalSince(last.endDate)) < 10
+            let sameSong = last.title == s.title && last.playing == s.playing
+                && abs(s.startDate.timeIntervalSince(last.startDate)) < 3 && last.liked == s.liked && last.art == s.art
+            if onTime || sameSong {
+                widgetShown = seen
+                widgetAsked = s
+                if onTime { WidgetLog.write("“\(s.title)” started on time: the widget moves on by itself (no refresh used).") }
+                return
+            }
+        }
         widgetReload?.cancel()
         let w = DispatchWorkItem { [weak self] in
             guard let self else { return }
             // Fresh state right before asking (things move on during the wait).
             self.syncWidget(reload: false)
             self.widgetShown = seen
+            self.widgetAsked = s
             AppGroup.reloadWidgets()
             WidgetServer.shared.askedReload()
-            WidgetLog.write("Asked the widget to refresh: “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
+            let state = UIApplication.shared.applicationState == .active ? "Starlite open" : "Starlite in the background, iOS may ignore it"
+            WidgetLog.write("Asked the widget to refresh (\(state)): “\(s.hasTrack ? s.title : "Not Playing")” \(s.playing ? "playing" : "paused") at \(Int(s.elapsed))s, cover \(s.art == nil ? "not ready" : "ready").")
         }
         widgetReload = w
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: w)
@@ -292,7 +313,7 @@ final class Player {
 
     /// Fetches the next songs' covers (small) so the widget has them.
     private func prefetchWidgetCovers() {
-        let wanted = ([current].compactMap { $0 } + upNext.prefix(3))
+        let wanted = ([current].compactMap { $0 } + upNext.prefix(6))
         let keep = Set(wanted.map(\.id))
         widgetCovers = widgetCovers.filter { keep.contains($0.key) }
         for t in wanted where widgetCovers[t.id] == nil && !widgetFetching.contains(t.id) {
